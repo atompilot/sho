@@ -1,0 +1,321 @@
+package handler_test
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"testing"
+	"time"
+
+	"github.com/atompilot/sho-api/internal/handler"
+	"github.com/atompilot/sho-api/internal/model"
+	"github.com/atompilot/sho-api/internal/service"
+	"github.com/atompilot/sho-api/internal/store"
+	"github.com/go-chi/chi/v5"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// testServer 构建一个带真实数据库的测试 HTTP server
+func testServer(t *testing.T) (*httptest.Server, func()) {
+	t.Helper()
+
+	dbURL := os.Getenv("TEST_DATABASE_URL")
+	if dbURL == "" {
+		dbURL = "postgres://sho:sho_dev_password@localhost:15432/sho?sslmode=disable"
+	}
+
+	ctx := context.Background()
+	pool, err := store.NewPool(ctx, dbURL)
+	require.NoError(t, err, "connect to test database")
+
+	// 确保表存在
+	conn, err := pool.Acquire(ctx)
+	require.NoError(t, err)
+	_ = store.RunMigrations(ctx, conn.Conn()) // 忽略"already exists"
+	conn.Release()
+
+	postStore := store.NewPostStore(pool)
+	postSvc := service.NewPostService(postStore)
+	h := handler.NewPostHandler(postSvc)
+
+	r := chi.NewRouter()
+	r.Post("/api/v1/posts", h.Create)
+	r.Get("/api/v1/posts/{slug}", h.Get)
+	r.Put("/api/v1/posts/{slug}", h.Update)
+	r.Delete("/api/v1/posts/{slug}", h.Delete)
+	r.Get("/api/v1/posts", h.List)
+
+	srv := httptest.NewServer(r)
+	cleanup := func() {
+		srv.Close()
+		pool.Close()
+	}
+	return srv, cleanup
+}
+
+func postJSON(t *testing.T, srv *httptest.Server, path string, body any) *http.Response {
+	t.Helper()
+	b, err := json.Marshal(body)
+	require.NoError(t, err)
+	resp, err := http.Post(srv.URL+path, "application/json", bytes.NewReader(b))
+	require.NoError(t, err)
+	return resp
+}
+
+func putJSON(t *testing.T, srv *httptest.Server, path string, body any) *http.Response {
+	t.Helper()
+	b, err := json.Marshal(body)
+	require.NoError(t, err)
+	req, err := http.NewRequest(http.MethodPut, srv.URL+path, bytes.NewReader(b))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	return resp
+}
+
+func deleteReq(t *testing.T, srv *httptest.Server, path string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodDelete, srv.URL+path, nil)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	return resp
+}
+
+func decodeJSON(t *testing.T, resp *http.Response, v any) {
+	t.Helper()
+	defer resp.Body.Close()
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(v))
+}
+
+// --- 测试用例 ---
+
+func TestCreatePost_OK(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+
+	resp := postJSON(t, srv, "/api/v1/posts", map[string]any{
+		"content": "# Hello\nTest content",
+		"format":  "markdown",
+		"policy":  "open",
+	})
+	assert.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var result model.PublishResponse
+	decodeJSON(t, resp, &result)
+	assert.NotEmpty(t, result.Slug)
+	assert.NotEmpty(t, result.EditToken)
+	assert.Contains(t, result.ManageURL, result.Slug)
+}
+
+func TestCreatePost_MissingContent(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+
+	resp := postJSON(t, srv, "/api/v1/posts", map[string]any{
+		"format": "markdown",
+	})
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	var result map[string]string
+	decodeJSON(t, resp, &result)
+	assert.Contains(t, result["error"], "content is required")
+}
+
+func TestCreatePost_CustomSlug(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+
+	customSlug := fmt.Sprintf("test-slug-%d", time.Now().UnixNano())
+	resp := postJSON(t, srv, "/api/v1/posts", map[string]any{
+		"content": "custom slug test",
+		"slug":    customSlug,
+		"policy":  "locked",
+	})
+	assert.Equal(t, http.StatusCreated, resp.StatusCode)
+
+	var result model.PublishResponse
+	decodeJSON(t, resp, &result)
+	assert.Equal(t, customSlug, result.Slug)
+
+}
+
+func TestGetPost_OK(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+
+	// 先发布
+	var pub model.PublishResponse
+	resp := postJSON(t, srv, "/api/v1/posts", map[string]any{
+		"content": "get test content",
+		"policy":  "locked",
+	})
+	decodeJSON(t, resp, &pub)
+
+	// 再读取
+	getResp, err := http.Get(srv.URL + "/api/v1/posts/" + pub.Slug)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, getResp.StatusCode)
+
+	var post model.Post
+	decodeJSON(t, getResp, &post)
+	assert.Equal(t, pub.Slug, post.Slug)
+	assert.Equal(t, "get test content", post.Content)
+}
+
+func TestGetPost_NotFound(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+
+	resp, err := http.Get(srv.URL + "/api/v1/posts/nonexistent-slug-xyz")
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+}
+
+func TestUpdatePost_OpenPolicy(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+
+	var pub model.PublishResponse
+	decodeJSON(t, postJSON(t, srv, "/api/v1/posts", map[string]any{
+		"content": "original",
+		"policy":  "open",
+	}), &pub)
+
+	updateResp := putJSON(t, srv, "/api/v1/posts/"+pub.Slug, map[string]any{
+		"content":    "updated",
+		"credential": "",
+	})
+	assert.Equal(t, http.StatusOK, updateResp.StatusCode)
+
+	// 验证内容已更新
+	getResp, _ := http.Get(srv.URL + "/api/v1/posts/" + pub.Slug)
+	var post model.Post
+	decodeJSON(t, getResp, &post)
+	assert.Equal(t, "updated", post.Content)
+}
+
+func TestUpdatePost_LockedPolicy(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+
+	var pub model.PublishResponse
+	decodeJSON(t, postJSON(t, srv, "/api/v1/posts", map[string]any{
+		"content": "locked content",
+		"policy":  "locked",
+	}), &pub)
+
+	updateResp := putJSON(t, srv, "/api/v1/posts/"+pub.Slug, map[string]any{
+		"content":    "trying to update",
+		"credential": "anything",
+	})
+	assert.Equal(t, http.StatusForbidden, updateResp.StatusCode)
+}
+
+func TestUpdatePost_PasswordPolicy_Correct(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+
+	var pub model.PublishResponse
+	decodeJSON(t, postJSON(t, srv, "/api/v1/posts", map[string]any{
+		"content":  "password protected",
+		"policy":   "password",
+		"password": "mypassword",
+	}), &pub)
+
+	updateResp := putJSON(t, srv, "/api/v1/posts/"+pub.Slug, map[string]any{
+		"content":    "updated with password",
+		"credential": "mypassword",
+	})
+	assert.Equal(t, http.StatusOK, updateResp.StatusCode)
+}
+
+func TestUpdatePost_PasswordPolicy_Wrong(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+
+	var pub model.PublishResponse
+	decodeJSON(t, postJSON(t, srv, "/api/v1/posts", map[string]any{
+		"content":  "password protected",
+		"policy":   "password",
+		"password": "mypassword",
+	}), &pub)
+
+	updateResp := putJSON(t, srv, "/api/v1/posts/"+pub.Slug, map[string]any{
+		"content":    "hack attempt",
+		"credential": "wrongpassword",
+	})
+	assert.Equal(t, http.StatusUnauthorized, updateResp.StatusCode)
+}
+
+func TestUpdatePost_OwnerOnly_Correct(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+
+	var pub model.PublishResponse
+	decodeJSON(t, postJSON(t, srv, "/api/v1/posts", map[string]any{
+		"content": "owner only",
+		"policy":  "owner-only",
+	}), &pub)
+
+	updateResp := putJSON(t, srv, "/api/v1/posts/"+pub.Slug, map[string]any{
+		"content":    "owner update",
+		"credential": pub.EditToken,
+	})
+	assert.Equal(t, http.StatusOK, updateResp.StatusCode)
+}
+
+func TestDeletePost_OK(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+
+	var pub model.PublishResponse
+	decodeJSON(t, postJSON(t, srv, "/api/v1/posts", map[string]any{
+		"content": "to be deleted",
+		"policy":  "locked",
+	}), &pub)
+
+	delResp := deleteReq(t, srv, "/api/v1/posts/"+pub.Slug+"?token="+pub.EditToken)
+	assert.Equal(t, http.StatusOK, delResp.StatusCode)
+
+	// 删除后 GET 应 404
+	getResp, _ := http.Get(srv.URL + "/api/v1/posts/" + pub.Slug)
+	assert.Equal(t, http.StatusNotFound, getResp.StatusCode)
+}
+
+func TestDeletePost_WrongToken(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+
+	var pub model.PublishResponse
+	decodeJSON(t, postJSON(t, srv, "/api/v1/posts", map[string]any{
+		"content": "protected",
+		"policy":  "locked",
+	}), &pub)
+
+	delResp := deleteReq(t, srv, "/api/v1/posts/"+pub.Slug+"?token=wrongtoken")
+	assert.Equal(t, http.StatusUnauthorized, delResp.StatusCode)
+}
+
+func TestListPosts_OK(t *testing.T) {
+	srv, cleanup := testServer(t)
+	defer cleanup()
+
+	// 发布两条
+	postJSON(t, srv, "/api/v1/posts", map[string]any{"content": "list test 1", "policy": "locked"})
+	postJSON(t, srv, "/api/v1/posts", map[string]any{"content": "list test 2", "policy": "open"})
+
+	resp, err := http.Get(srv.URL + "/api/v1/posts?limit=10")
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var posts []*model.Post
+	decodeJSON(t, resp, &posts)
+	assert.GreaterOrEqual(t, len(posts), 2)
+}
