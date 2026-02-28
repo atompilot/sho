@@ -49,6 +49,24 @@ type PostVersion struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+// ValidPolicy reports whether p is a known policy value.
+func ValidPolicy(p Policy) bool {
+	switch p {
+	case PolicyLocked, PolicyOpen, PolicyPassword, PolicyOwnerOnly, PolicyAIReview:
+		return true
+	}
+	return false
+}
+
+// ValidFormat reports whether f is a known format value.
+func ValidFormat(f Format) bool {
+	switch f {
+	case FormatMarkdown, FormatHTML, FormatTXT, FormatJSX:
+		return true
+	}
+	return false
+}
+
 // PublishResponse is returned to the author after creating a post.
 type PublishResponse struct {
 	ID        uuid.UUID `json:"id"`

@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strconv"
 
@@ -12,6 +13,8 @@ import (
 	"github.com/atompilot/sho-api/internal/store"
 	"github.com/go-chi/chi/v5"
 )
+
+const maxRequestBodyBytes = 10 << 20 // 10 MB
 
 type PostHandler struct {
 	svc *service.PostService
@@ -24,7 +27,9 @@ func NewPostHandler(svc *service.PostService) *PostHandler {
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		log.Printf("encode response: %v", err)
+	}
 }
 
 func writeError(w http.ResponseWriter, status int, msg string) {
@@ -32,6 +37,8 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 }
 
 func (h *PostHandler) Create(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+
 	var req struct {
 		Title          *string      `json:"title"`
 		Content        string       `json:"content"`
@@ -51,9 +58,15 @@ func (h *PostHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Format == "" {
 		req.Format = model.FormatMarkdown
+	} else if !model.ValidFormat(req.Format) {
+		writeError(w, http.StatusBadRequest, "invalid format: must be one of markdown, html, txt, jsx")
+		return
 	}
 	if req.Policy == "" {
 		req.Policy = model.PolicyLocked
+	} else if !model.ValidPolicy(req.Policy) {
+		writeError(w, http.StatusBadRequest, "invalid policy: must be one of open, locked, password, owner-only, ai-review")
+		return
 	}
 
 	resp, err := h.svc.CreatePost(r.Context(), service.CreatePostInput{
@@ -66,7 +79,8 @@ func (h *PostHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Slug:           req.Slug,
 	})
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("create post: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to create post")
 		return
 	}
 	writeJSON(w, http.StatusCreated, resp)
@@ -80,13 +94,16 @@ func (h *PostHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("get post %s: %v", slug, err)
+		writeError(w, http.StatusInternalServerError, "failed to get post")
 		return
 	}
 	writeJSON(w, http.StatusOK, post)
 }
 
 func (h *PostHandler) Update(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+
 	slug := chi.URLParam(r, "slug")
 	var req struct {
 		Content    string `json:"content"`
@@ -116,7 +133,8 @@ func (h *PostHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("update post %s: %v", slug, err)
+		writeError(w, http.StatusInternalServerError, "failed to update post")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "updated"})
@@ -140,7 +158,8 @@ func (h *PostHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("delete post %s: %v", slug, err)
+		writeError(w, http.StatusInternalServerError, "failed to delete post")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
@@ -152,7 +171,8 @@ func (h *PostHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	posts, err := h.svc.ListPosts(r.Context(), limit, offset)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
+		log.Printf("list posts: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to list posts")
 		return
 	}
 	writeJSON(w, http.StatusOK, posts)

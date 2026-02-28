@@ -176,7 +176,10 @@ func publishHandler(svc *service.PostService) mcpserver.ToolHandlerFunc {
 			return mcp.NewToolResultError(fmt.Sprintf("create post: %v", err)), nil
 		}
 
-		data, _ := json.Marshal(resp)
+		data, err := json.Marshal(resp)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("marshal response: %v", err)), nil
+		}
 		return mcp.NewToolResultText(string(data)), nil
 	}
 }
@@ -193,7 +196,10 @@ func getHandler(svc *service.PostService) mcpserver.ToolHandlerFunc {
 			return mcp.NewToolResultError(fmt.Sprintf("get post: %v", err)), nil
 		}
 
-		data, _ := json.Marshal(post)
+		data, err := json.Marshal(post)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("marshal response: %v", err)), nil
+		}
 		return mcp.NewToolResultText(string(data)), nil
 	}
 }
@@ -259,7 +265,10 @@ func listHandler(svc *service.PostService) mcpserver.ToolHandlerFunc {
 			return mcp.NewToolResultError(fmt.Sprintf("list posts: %v", err)), nil
 		}
 
-		data, _ := json.Marshal(posts)
+		data, err := json.Marshal(posts)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("marshal response: %v", err)), nil
+		}
 		return mcp.NewToolResultText(string(data)), nil
 	}
 }

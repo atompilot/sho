@@ -2,8 +2,10 @@ package policy
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/base64"
 	"errors"
+	"fmt"
 
 	"github.com/atompilot/sho-api/internal/model"
 	"golang.org/x/crypto/bcrypt"
@@ -31,14 +33,24 @@ func CheckUpdate(p model.Policy, stored *string, credential string) error {
 		}
 		return nil
 	case model.PolicyOwnerOnly:
-		if stored == nil || *stored != credential {
+		if stored == nil {
+			return ErrInvalidCredential
+		}
+		if subtle.ConstantTimeCompare([]byte(*stored), []byte(credential)) != 1 {
 			return ErrInvalidCredential
 		}
 		return nil
-	default:
-		// ai-review handled upstream
+	case model.PolicyAIReview:
+		// ai-review handled upstream by the service layer
 		return nil
+	default:
+		return fmt.Errorf("unknown policy: %s", p)
 	}
+}
+
+// ConstantTimeEqual compares two strings in constant time to prevent timing attacks.
+func ConstantTimeEqual(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
 func HashPassword(password string) (string, error) {
