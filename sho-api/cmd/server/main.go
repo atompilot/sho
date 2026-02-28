@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 
 	"github.com/atompilot/sho-api/internal/handler"
+	shoMCP "github.com/atompilot/sho-api/internal/mcp"
 	"github.com/atompilot/sho-api/internal/service"
 	"github.com/atompilot/sho-api/internal/store"
 	"github.com/go-chi/chi/v5"
@@ -48,7 +50,18 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
-	log.Printf("sho-api listening on :%s", port)
+
+	// Mount MCP server at /mcp (HTTP SSE transport)
+	baseURL := os.Getenv("BASE_URL")
+	if baseURL == "" {
+		baseURL = fmt.Sprintf("http://localhost:%s", port)
+	}
+	mcpSrv := shoMCP.NewMCPServer(postSvc)
+	sseServer := shoMCP.SSEServer(mcpSrv, baseURL)
+	r.Get("/mcp/sse", sseServer.SSEHandler().ServeHTTP)
+	r.Post("/mcp/message", sseServer.MessageHandler().ServeHTTP)
+
+	log.Printf("sho-api listening on :%s (REST /api/v1, MCP /mcp)", port)
 	log.Fatal(http.ListenAndServe(":"+port, r))
 }
 
