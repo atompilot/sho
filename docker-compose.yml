@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: sho
       POSTGRES_PASSWORD: sho_dev_password
     ports:
-      - "5433:5432"
+      - "15432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -18,10 +18,10 @@ services:
   sho-api:
     build: ./sho-api
     ports:
-      - "8080:8080"
+      - "15080:15080"
     environment:
       DATABASE_URL: postgres://sho:sho_dev_password@postgres:5432/sho?sslmode=disable
-      PORT: 8080
+      PORT: 15080
     depends_on:
       postgres:
         condition: service_healthy
@@ -29,10 +29,10 @@ services:
   sho-web:
     build: ./sho-web
     ports:
-      - "3000:3000"
+      - "15030:3000"
     environment:
-      API_URL: http://sho-api:8080
-      NEXT_PUBLIC_API_URL: http://localhost:8080
+      API_URL: http://sho-api:15080
+      NEXT_PUBLIC_API_URL: http://localhost:15080
     depends_on:
       - sho-api
 
