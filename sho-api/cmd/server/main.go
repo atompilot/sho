@@ -29,6 +29,16 @@ func main() {
 	}
 	defer pool.Close()
 
+	// Run database migrations on startup
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		log.Fatalf("acquire conn for migration: %v", err)
+	}
+	if err := store.RunMigrations(ctx, conn.Conn()); err != nil {
+		log.Printf("migration warning (tables may already exist): %v", err)
+	}
+	conn.Release()
+
 	postStore := store.NewPostStore(pool)
 	postSvc := service.NewPostService(postStore)
 	postHandler := handler.NewPostHandler(postSvc)
