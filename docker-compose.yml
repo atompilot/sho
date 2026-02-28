@@ -26,5 +26,15 @@ services:
       postgres:
         condition: service_healthy
 
+  sho-web:
+    build: ./sho-web
+    ports:
+      - "3000:3000"
+    environment:
+      API_URL: http://sho-api:8080
+      NEXT_PUBLIC_API_URL: http://localhost:8080
+    depends_on:
+      - sho-api
+
 volumes:
   postgres_data:
