@@ -19,9 +19,10 @@ export default function NewPostPage() {
     edit_token: string
     slug: string
   } | null>(null)
+
   const [error, setError] = useState('')
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.SyntheticEvent) {
     e.preventDefault()
     setLoading(true)
     setError('')
@@ -52,7 +53,7 @@ export default function NewPostPage() {
   }
 
   if (result) {
-    const manageUrl = `${window.location.origin}${result.manage_url}`
+    const manageUrl = `${window.location.origin}/manage/${result.slug}?token=${result.edit_token}`
     return (
       <main className="max-w-xl mx-auto px-4 py-12 text-center">
         <h1 className="text-2xl font-bold mb-4">Published!</h1>
