@@ -1,36 +1,55 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# sho-web
 
-## Getting Started
+Sho 的 Next.js 前端。/ Next.js frontend for Sho.
 
-First, run the development server:
+## Setup / 安装
+
+```bash
+npm install
+```
+
+## Development / 开发
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Opens at http://localhost:3000. Requires the API server running at `NEXT_PUBLIC_API_URL` (default: `http://localhost:15080`).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+需要 API 服务运行在 `NEXT_PUBLIC_API_URL`（默认 `http://localhost:15080`）。
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Build / 构建
 
-## Learn More
+```bash
+npm run build
+npm start
+```
 
-To learn more about Next.js, take a look at the following resources:
+## Environment / 环境变量
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `API_URL` | `http://localhost:15080` | API URL for server-side requests (SSR) |
+| `NEXT_PUBLIC_API_URL` | `http://localhost:15080` | API URL for client-side requests |
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Structure / 结构
 
-## Deploy on Vercel
+```
+sho-web/
+├── app/
+│   ├── page.tsx            Home page / 首页
+│   ├── [slug]/page.tsx     Post viewer / 内容展示页
+│   ├── edit/               Edit page / 编辑页
+│   ├── explore/page.tsx    Explore posts / 浏览页
+│   └── layout.tsx          Root layout
+├── components/
+│   ├── ContentRenderer.tsx  Format-aware renderer / 格式渲染器
+│   └── HomeClient.tsx       Home page client component
+├── lib/
+│   └── detectFormat.ts      Client-side format detection
+└── public/
+    ├── skill.md             AI agent documentation / AI agent 文档
+    └── logo.png
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+See the [root README](../README.md) for full project documentation.

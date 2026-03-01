@@ -1,0 +1,41 @@
+{
+  "name": "Sho Platform",
+  "version": "1.0.0",
+  "description": "Anonymous content publishing platform",
+  "features": [
+    "No login required",
+    "Multiple format support",
+    "Auto format detection",
+    "View deduplication",
+    "Duplicate content detection"
+  ],
+  "formats": {
+    "supported": ["markdown", "html", "jsx", "svg", "csv", "json", "lottie", "p5", "glsl"],
+    "default": "markdown"
+  },
+  "stats": {
+    "total_posts": 1024,
+    "daily_active_users": 312,
+    "formats_breakdown": {
+      "markdown": 580,
+      "html": 210,
+      "jsx": 98,
+      "svg": 64,
+      "json": 42,
+      "csv": 18,
+      "p5": 8,
+      "glsl": 4
+    }
+  },
+  "config": {
+    "max_content_length": 1048576,
+    "rate_limit": {
+      "requests_per_minute": 30,
+      "burst": 10
+    },
+    "cors": {
+      "allowed_origins": ["https://sho.app", "http://localhost:3000"],
+      "allow_credentials": false
+    }
+  }
+}

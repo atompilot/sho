@@ -7,6 +7,7 @@ import (
 
 	"github.com/atompilot/sho-api/internal/model"
 	"github.com/atompilot/sho-api/internal/service"
+	"github.com/google/uuid"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
@@ -20,6 +21,9 @@ func NewMCPServer(postSvc *service.PostService) *mcpserver.MCPServer {
 	s.AddTool(updateTool(), updateHandler(postSvc))
 	s.AddTool(deleteTool(), deleteHandler(postSvc))
 	s.AddTool(listTool(), listHandler(postSvc))
+	s.AddTool(likeTool(), likeHandler(postSvc))
+	s.AddTool(commentTool(), commentHandler(postSvc))
+	s.AddTool(listCommentsTool(), listCommentsHandler(postSvc))
 
 	return s
 }
@@ -301,6 +305,107 @@ func listHandler(svc *service.PostService) mcpserver.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("marshal response: %v", err)), nil
 		}
+		return mcp.NewToolResultText(string(data)), nil
+	}
+}
+
+func likeTool() mcp.Tool {
+	return mcp.NewTool("sho_like",
+		mcp.WithDescription("Like a post. One like per caller (deduplicated)."),
+		mcp.WithString("slug",
+			mcp.Required(),
+			mcp.Description("The slug of the post to like."),
+		),
+	)
+}
+
+func likeHandler(svc *service.PostService) mcpserver.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		slug, err := req.RequireString("slug")
+		if err != nil {
+			return mcp.NewToolResultError("slug is required"), nil
+		}
+
+		likes, alreadyLiked, err := svc.LikePost(ctx, slug, "mcp-client")
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("like post: %v", err)), nil
+		}
+
+		data, _ := json.Marshal(map[string]any{"likes": likes, "already_liked": alreadyLiked})
+		return mcp.NewToolResultText(string(data)), nil
+	}
+}
+
+func commentTool() mcp.Tool {
+	return mcp.NewTool("sho_comment",
+		mcp.WithDescription("Add a comment to a post. Supports threaded replies."),
+		mcp.WithString("slug",
+			mcp.Required(),
+			mcp.Description("The slug of the post to comment on."),
+		),
+		mcp.WithString("content",
+			mcp.Required(),
+			mcp.Description("The comment text."),
+		),
+		mcp.WithString("parent_id",
+			mcp.Description("ID of the parent comment to reply to (optional, max 2 levels)."),
+		),
+	)
+}
+
+func commentHandler(svc *service.PostService) mcpserver.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		slug, err := req.RequireString("slug")
+		if err != nil {
+			return mcp.NewToolResultError("slug is required"), nil
+		}
+		content, err := req.RequireString("content")
+		if err != nil {
+			return mcp.NewToolResultError("content is required"), nil
+		}
+
+		var parentID *uuid.UUID
+		if pid := req.GetString("parent_id", ""); pid != "" {
+			parsed, err := uuid.Parse(pid)
+			if err != nil {
+				return mcp.NewToolResultError("invalid parent_id"), nil
+			}
+			parentID = &parsed
+		}
+
+		comment, err := svc.AddComment(ctx, slug, content, parentID)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("add comment: %v", err)), nil
+		}
+
+		data, _ := json.Marshal(comment)
+		return mcp.NewToolResultText(string(data)), nil
+	}
+}
+
+func listCommentsTool() mcp.Tool {
+	return mcp.NewTool("sho_list_comments",
+		mcp.WithDescription("List all comments on a post."),
+		mcp.WithString("slug",
+			mcp.Required(),
+			mcp.Description("The slug of the post."),
+		),
+	)
+}
+
+func listCommentsHandler(svc *service.PostService) mcpserver.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		slug, err := req.RequireString("slug")
+		if err != nil {
+			return mcp.NewToolResultError("slug is required"), nil
+		}
+
+		comments, err := svc.ListComments(ctx, slug)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("list comments: %v", err)), nil
+		}
+
+		data, _ := json.Marshal(comments)
 		return mcp.NewToolResultText(string(data)), nil
 	}
 }

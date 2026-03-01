@@ -22,7 +22,7 @@ async function getPost(slug: string): Promise<Post | null> {
   try {
     const apiUrl = process.env.API_URL || 'http://localhost:15080'
     const res = await fetch(`${apiUrl}/api/v1/posts/${slug}`, {
-      next: { revalidate: 60 },
+      cache: 'no-store',
     })
     if (res.status === 404) return null
     if (!res.ok) throw new Error(`fetch post failed: ${res.status}`)

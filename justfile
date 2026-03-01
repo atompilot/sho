@@ -1,6 +1,8 @@
 # Sho — development task runner
 # Usage: just <command>
 
+set dotenv-load
+
 default:
     @just --list
 
@@ -30,7 +32,7 @@ reset:
 
 # Open a psql session against the local dev database
 db:
-    psql postgres://sho:sho_dev_password@localhost:15432/sho
+    psql "postgres://${POSTGRES_USER:-sho}:${POSTGRES_PASSWORD}@localhost:${POSTGRES_PORT:-15432}/${POSTGRES_DB:-sho}"
 
 # ── API (Go) ────────────────────────────────────────────────────────────────────
 

@@ -24,7 +24,10 @@ func testServer(t *testing.T) (*httptest.Server, func()) {
 
 	dbURL := os.Getenv("TEST_DATABASE_URL")
 	if dbURL == "" {
-		dbURL = "postgres://sho:sho_dev_password@localhost:15432/sho?sslmode=disable"
+		dbURL = os.Getenv("DATABASE_URL")
+	}
+	if dbURL == "" {
+		t.Skip("TEST_DATABASE_URL or DATABASE_URL not set, skipping integration test")
 	}
 
 	ctx := context.Background()

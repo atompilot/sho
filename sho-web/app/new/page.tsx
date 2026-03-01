@@ -148,10 +148,25 @@ function RefreshIcon() {
   )
 }
 
+const MAX_CONTENT_BYTES = 1024 * 1024 // 1 MB
+
+function byteLength(str: string): number {
+  return new Blob([str]).size
+}
+
 function NewPostForm() {
   const searchParams = useSearchParams()
-  const initialContent = searchParams.get('content') || ''
-  const [content, setContent] = useState(initialContent)
+  const [content, setContent] = useState(() => {
+    const draftKey = searchParams.get('draft')
+    if (draftKey) {
+      const draft = localStorage.getItem(draftKey)
+      if (draft) {
+        localStorage.removeItem(draftKey)
+        return draft
+      }
+    }
+    return searchParams.get('content') || ''
+  })
   const [format, setFormat] = useState<Format>('auto')
   const [pol, setPol] = useState<Policy>('locked')
   const [editPassword, setEditPassword] = useState(() => generatePassword())
@@ -166,6 +181,7 @@ function NewPostForm() {
   const [error, setError] = useState('')
   const router = useRouter()
 
+  const overLimit = byteLength(content) > MAX_CONTENT_BYTES
   const detectedFormat = useMemo(() => detectFormat(content), [content])
 
   const refreshEditPassword = useCallback(() => setEditPassword(generatePassword()), [])
@@ -246,7 +262,10 @@ function NewPostForm() {
               className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm font-mono resize-none focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-gray-300 transition-all"
               autoFocus
             />
-            <div className="flex justify-end mt-1.5">
+            <div className="flex justify-end mt-1.5 gap-2">
+              {overLimit && (
+                <span className="text-xs text-red-500">Content exceeds 1 MB limit.</span>
+              )}
               <span className="text-xs text-gray-400">
                 {content.length.toLocaleString()} chars
               </span>
@@ -406,7 +425,7 @@ function NewPostForm() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                disabled={!content.trim()}
+                disabled={!content.trim() || overLimit}
                 onClick={handlePreview}
                 className="border border-gray-200 text-gray-600 rounded-lg px-6 py-2.5 text-sm disabled:opacity-30 hover:border-gray-300 hover:text-gray-800 transition-colors"
               >
@@ -414,7 +433,7 @@ function NewPostForm() {
               </button>
               <button
                 type="submit"
-                disabled={loading || !content.trim()}
+                disabled={loading || !content.trim() || overLimit}
                 className="bg-black text-white rounded-lg px-6 py-2.5 text-sm disabled:opacity-30 hover:bg-gray-800 transition-colors"
               >
                 {loading ? 'Publishing...' : 'Publish'}

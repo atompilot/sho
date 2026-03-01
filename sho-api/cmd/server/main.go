@@ -25,7 +25,7 @@ func main() {
 
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
-		dbURL = "postgres://sho:sho_dev_password@localhost:15432/sho?sslmode=disable"
+		log.Fatal("DATABASE_URL is required")
 	}
 
 	pool, err := store.NewPool(ctx, dbURL)
@@ -96,13 +96,13 @@ func main() {
 		}
 	})
 
-	port := os.Getenv("PORT")
+	port := os.Getenv("API_PORT")
 	if port == "" {
 		port = "15080"
 	}
 
 	// Mount MCP server at /mcp (HTTP SSE transport)
-	baseURL := os.Getenv("BASE_URL")
+	baseURL := os.Getenv("API_BASE_URL")
 	if baseURL == "" {
 		baseURL = fmt.Sprintf("http://localhost:%s", port)
 	}

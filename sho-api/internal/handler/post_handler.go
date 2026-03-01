@@ -20,6 +20,7 @@ import (
 )
 
 const maxRequestBodyBytes = 10 << 20 // 10 MB
+const maxContentBytes = 1 << 20      // 1 MB
 
 type PostHandler struct {
 	svc       *service.PostService
@@ -63,6 +64,10 @@ func (h *PostHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Content == "" {
 		writeError(w, http.StatusBadRequest, "content is required")
+		return
+	}
+	if len(req.Content) > maxContentBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "content exceeds 1 MB limit")
 		return
 	}
 	if req.Format == "" || req.Format == model.FormatAuto {
@@ -180,6 +185,11 @@ func (h *PostHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if len(req.Content) > maxContentBytes {
+		writeError(w, http.StatusRequestEntityTooLarge, "content exceeds 1 MB limit")
 		return
 	}
 

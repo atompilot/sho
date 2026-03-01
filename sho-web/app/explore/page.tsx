@@ -7,11 +7,28 @@ interface Post {
   id: string
   slug: string
   title?: string
+  ai_title?: string
   content: string
   format: string
   policy: string
   views: number
+  likes: number
+  last_viewed_at?: string
   created_at: string
+}
+
+type SortMode = 'recommended' | 'latest'
+type FormatFilter = '' | 'markdown' | 'html' | 'jsx'
+
+const FORMAT_FILTERS: { value: FormatFilter; label: string }[] = [
+  { value: '', label: 'All' },
+  { value: 'markdown', label: 'Markdown' },
+  { value: 'html', label: 'HTML' },
+  { value: 'jsx', label: 'JSX' },
+]
+
+function displayFormat(fmt: string): string {
+  return fmt === 'txt' ? 'markdown' : fmt
 }
 
 function timeAgo(dateStr: string): string {
@@ -26,43 +43,52 @@ function timeAgo(dateStr: string): string {
 
 export default function ExplorePage() {
   const [query, setQuery] = useState('')
+  const [sortMode, setSortMode] = useState<SortMode>('recommended')
+  const [formatFilter, setFormatFilter] = useState<FormatFilter>('')
   const [posts, setPosts] = useState<Post[]>([])
   const [loading, setLoading] = useState(true)
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null)
 
-  const fetchPosts = useCallback(async (q: string) => {
+  const buildUrl = useCallback((q: string, mode: SortMode, fmt: FormatFilter) => {
+    const base = process.env.NEXT_PUBLIC_API_URL
+    const fmtParam = fmt ? `&format=${fmt}` : ''
+    if (q) {
+      return `${base}/api/v1/posts/search?q=${encodeURIComponent(q)}&limit=30${fmtParam}`
+    }
+    if (mode === 'recommended') {
+      return `${base}/api/v1/posts/recommended?limit=30${fmtParam}`
+    }
+    return `${base}/api/v1/posts?limit=30${fmtParam}`
+  }, [])
+
+  const fetchPosts = useCallback(async (q: string, mode: SortMode, fmt: FormatFilter) => {
     setLoading(true)
     try {
-      const url = q
-        ? `${process.env.NEXT_PUBLIC_API_URL}/api/v1/posts/search?q=${encodeURIComponent(q)}&limit=20`
-        : `${process.env.NEXT_PUBLIC_API_URL}/api/v1/posts?limit=20`
-      const res = await fetch(url)
-      if (res.ok) {
-        setPosts(await res.json())
-      }
+      const res = await fetch(buildUrl(q, mode, fmt))
+      if (res.ok) setPosts(await res.json())
     } catch {
       // ignore
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [buildUrl])
 
   useEffect(() => {
-    fetchPosts('')
-  }, [fetchPosts])
+    fetchPosts('', sortMode, formatFilter)
+  }, [fetchPosts, sortMode, formatFilter])
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => {
-      fetchPosts(query)
+      fetchPosts(query, sortMode, formatFilter)
     }, 300)
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }
-  }, [query, fetchPosts])
+  }, [query, sortMode, formatFilter, fetchPosts])
 
   return (
-    <main className="max-w-3xl mx-auto px-4 py-12">
+    <main className="max-w-5xl mx-auto px-4 py-12">
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-4">
           <Link href="/" className="text-gray-400 hover:text-gray-600 transition-colors">
@@ -83,9 +109,56 @@ export default function ExplorePage() {
         placeholder="Search posts..."
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        className="w-full border border-gray-200 rounded-lg px-4 py-3 text-sm mb-6 focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-gray-300 transition-all"
+        className="w-full border border-gray-200 rounded-lg px-4 py-3 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-black/5 focus:border-gray-300 transition-all"
         autoFocus
       />
+
+      <div className="flex items-center justify-between mb-6">
+        {/* Sort toggle — hidden while searching */}
+        {!query ? (
+          <div className="flex gap-1">
+            <button
+              onClick={() => setSortMode('recommended')}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                sortMode === 'recommended'
+                  ? 'bg-black text-white'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              ✦ Recommended
+            </button>
+            <button
+              onClick={() => setSortMode('latest')}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                sortMode === 'latest'
+                  ? 'bg-black text-white'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Latest
+            </button>
+          </div>
+        ) : (
+          <div />
+        )}
+
+        {/* Format filter */}
+        <div className="flex gap-1">
+          {FORMAT_FILTERS.map((f) => (
+            <button
+              key={f.value}
+              onClick={() => setFormatFilter(f.value)}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+                formatFilter === f.value
+                  ? 'bg-gray-900 text-white'
+                  : 'text-gray-400 hover:text-gray-600'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
       {loading ? (
         <p className="text-center text-gray-400 py-12">Loading...</p>
@@ -94,36 +167,29 @@ export default function ExplorePage() {
           {query ? 'No results found.' : 'No posts yet.'}
         </p>
       ) : (
-        <ul className="divide-y divide-gray-100">
-          {posts.map((post) => {
-            const preview = post.content.slice(0, 120).replace(/\n/g, ' ')
-            return (
-              <li key={post.id}>
-                <Link
-                  href={`/${post.slug}`}
-                  className="block py-4 hover:bg-gray-50 -mx-2 px-2 rounded transition-colors"
-                >
-                  <div className="flex items-center justify-between gap-4">
-                    <span className="font-medium text-sm truncate">
-                      {post.title || `/${post.slug}`}
-                    </span>
-                    <span className="text-xs text-gray-400 shrink-0">
-                      {timeAgo(post.created_at)}
-                    </span>
-                  </div>
-                  <p className="text-sm text-gray-500 mt-1 line-clamp-2">{preview}</p>
-                  <div className="flex gap-3 mt-2 text-xs text-gray-400">
-                    <span>{post.format}</span>
-                    <span>&middot;</span>
-                    <span>{post.policy}</span>
-                    <span>&middot;</span>
-                    <span>{post.views} views</span>
-                  </div>
-                </Link>
-              </li>
-            )
-          })}
-        </ul>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          {posts.map((post) => (
+            <Link
+              key={post.id}
+              href={`/${post.slug}`}
+              className="relative border border-gray-200 rounded-lg p-3 hover:shadow-md hover:border-gray-300 transition-all flex flex-col justify-between min-h-[100px]"
+            >
+              <div className="flex items-start justify-between gap-1">
+                <span className="font-medium text-sm line-clamp-2 flex-1">
+                  {post.ai_title || post.title || `/${post.slug}`}
+                </span>
+                <span className="text-[10px] text-gray-400 bg-gray-100 rounded px-1.5 py-0.5 shrink-0">
+                  {displayFormat(post.format)}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 mt-2 text-[11px] text-gray-400">
+                <span>{post.views} views</span>
+                {post.likes > 0 && <span>{post.likes} likes</span>}
+                {post.last_viewed_at && <span>visited {timeAgo(post.last_viewed_at)}</span>}
+              </div>
+            </Link>
+          ))}
+        </div>
       )}
     </main>
   )
