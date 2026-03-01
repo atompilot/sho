@@ -6,12 +6,26 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 
+	"github.com/atompilot/sho-api/internal/llm"
 	"github.com/atompilot/sho-api/internal/model"
 	"github.com/atompilot/sho-api/internal/policy"
 	"github.com/atompilot/sho-api/internal/store"
 	"github.com/google/uuid"
 )
+
+// ErrEmptyContent is returned when the submitted content is blank after trimming.
+var ErrEmptyContent = errors.New("content is required")
+
+// ErrDuplicateContent is returned when the submitted content already exists.
+type ErrDuplicateContent struct {
+	Slug string // slug of the existing post
+}
+
+func (e ErrDuplicateContent) Error() string {
+	return fmt.Sprintf("content already published as /%s", e.Slug)
+}
 
 type PostService struct {
 	store *store.PostStore
@@ -28,6 +42,10 @@ type CreatePostInput struct {
 	Policy         model.Policy
 	Password       *string
 	AIReviewPrompt *string
+	ViewPolicy     model.ViewPolicy
+	ViewPassword   *string
+	ViewQAQuestion *string
+	ViewQAAnswer   *string
 }
 
 type UpdatePostInput struct {
@@ -40,11 +58,59 @@ type UpdatePostInput struct {
 var slugRegex = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$|^[a-z0-9]{1,64}$`)
 
 func (s *PostService) CreatePost(ctx context.Context, input CreatePostInput) (*model.PublishResponse, error) {
-	// Validate password required for password policy
+	// Trim only trailing whitespace (leading whitespace is intentional).
+	input.Content = strings.TrimRight(input.Content, " \t\r\n")
+	if input.Content == "" {
+		return nil, ErrEmptyContent
+	}
+
+	// Reject duplicate content — return the existing post's slug.
+	existingSlug, err := s.store.FindByContent(ctx, input.Content)
+	if err != nil {
+		return nil, fmt.Errorf("check duplicate: %w", err)
+	}
+	if existingSlug != "" {
+		return nil, ErrDuplicateContent{Slug: existingSlug}
+	}
+
+	// Edit policy password: auto-generate 6-digit if empty
+	var rawEditPassword *string
 	if input.Policy == model.PolicyPassword {
 		if input.Password == nil || *input.Password == "" {
-			return nil, errors.New("password is required for password policy")
+			pw := generateNumericCode(6)
+			input.Password = &pw
 		}
+		rawEditPassword = input.Password
+	}
+
+	// Default view policy to open
+	if input.ViewPolicy == "" {
+		input.ViewPolicy = model.ViewPolicyOpen
+	}
+
+	// Validate view policy required fields
+	if input.ViewPolicy == model.ViewPolicyHumanQA {
+		if input.ViewQAQuestion == nil || strings.TrimSpace(*input.ViewQAQuestion) == "" {
+			return nil, errors.New("question is required for human-qa view policy")
+		}
+		if input.ViewQAAnswer == nil || strings.TrimSpace(*input.ViewQAAnswer) == "" {
+			return nil, errors.New("answer is required for human-qa view policy")
+		}
+	}
+	if input.ViewPolicy == model.ViewPolicyAIQA {
+		if input.ViewQAQuestion == nil || strings.TrimSpace(*input.ViewQAQuestion) == "" {
+			return nil, errors.New("question is required for ai-qa view policy")
+		}
+	}
+
+	// View policy password: auto-generate 6-digit if empty
+	var rawViewPassword *string
+	if input.ViewPolicy == model.ViewPolicyPassword {
+		if input.ViewPassword == nil || *input.ViewPassword == "" {
+			pw := generateNumericCode(6)
+			input.ViewPassword = &pw
+		}
+		rawViewPassword = input.ViewPassword
 	}
 
 	slug, err := s.resolveSlug(ctx, nil)
@@ -74,6 +140,9 @@ func (s *PostService) CreatePost(ctx context.Context, input CreatePostInput) (*m
 		Policy:         input.Policy,
 		AIReviewPrompt: input.AIReviewPrompt,
 		EditToken:      editToken,
+		ViewPolicy:     input.ViewPolicy,
+		ViewQAQuestion: input.ViewQAQuestion,
+		ViewQAAnswer:   input.ViewQAAnswer,
 	}
 
 	if input.Policy == model.PolicyPassword && input.Password != nil {
@@ -84,26 +153,34 @@ func (s *PostService) CreatePost(ctx context.Context, input CreatePostInput) (*m
 		post.Password = &hash
 	}
 
+	// Store view password as plaintext (6-digit numeric code)
+	if input.ViewPolicy == model.ViewPolicyPassword && input.ViewPassword != nil {
+		post.ViewPassword = input.ViewPassword
+	}
+
 	if err := s.store.Create(ctx, post); err != nil {
 		return nil, fmt.Errorf("create post: %w", err)
 	}
 
 	return &model.PublishResponse{
-		ID:        post.ID,
-		Slug:      slug,
-		EditToken: editToken,
-		ManageURL: fmt.Sprintf("/manage/%s", slug),
-		CreatedAt: post.CreatedAt,
+		ID:           post.ID,
+		Slug:         slug,
+		EditToken:    editToken,
+		ManageURL:    fmt.Sprintf("/manage/%s", slug),
+		EditPassword: rawEditPassword,
+		ViewPassword: rawViewPassword,
+		CreatedAt:    post.CreatedAt,
 	}, nil
 }
 
 func (s *PostService) GetPost(ctx context.Context, slug string) (*model.Post, error) {
-	post, err := s.store.GetBySlug(ctx, slug)
-	if err != nil {
-		return nil, err
-	}
-	s.store.IncrViews(ctx, slug)
-	return post, nil
+	return s.store.GetBySlug(ctx, slug)
+}
+
+// RecordView tracks a deduplicated view for the given fingerprint (24 h window).
+// Returns the current view count and whether this visit was counted as a new view.
+func (s *PostService) RecordView(ctx context.Context, slug, fpHash string) (views int, counted bool, err error) {
+	return s.store.TryView(ctx, slug, fpHash)
 }
 
 func (s *PostService) UpdatePost(ctx context.Context, input UpdatePostInput) error {
@@ -146,17 +223,87 @@ func (s *PostService) DeletePost(ctx context.Context, slug string, editToken str
 	return s.store.SoftDelete(ctx, slug)
 }
 
-func (s *PostService) ListPosts(ctx context.Context, limit, offset int) ([]*model.Post, error) {
+func (s *PostService) ListPosts(ctx context.Context, limit, offset int, format string) ([]*model.Post, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
 	if offset < 0 {
 		offset = 0
 	}
-	return s.store.ListRecent(ctx, limit, offset)
+	return s.store.ListRecent(ctx, limit, offset, format)
 }
 
-func (s *PostService) SearchPosts(ctx context.Context, query string, limit, offset int) ([]*model.Post, error) {
+func (s *PostService) ListRecommended(ctx context.Context, limit, offset int, format string) ([]*model.Post, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	// Store fetches limit*3+30 rows so we have enough to apply diversity re-ranking.
+	posts, err := s.store.ListRecommended(ctx, limit, offset, format)
+	if err != nil {
+		return nil, err
+	}
+	return applyFormatDiversity(posts, limit), nil
+}
+
+// applyFormatDiversity re-ranks posts to ensure adjacent items have different formats.
+// Algorithm: greedy scan — for each slot, prefer the highest-scored post whose format
+// has not appeared in the previous two positions.  If no diverse post exists, fall back
+// to the best available.
+//
+// Input must already be sorted descending by recommendation score (as returned by the DB).
+func applyFormatDiversity(posts []*model.Post, limit int) []*model.Post {
+	if len(posts) == 0 {
+		return posts
+	}
+
+	used := make([]bool, len(posts))
+	result := make([]*model.Post, 0, limit)
+
+	for len(result) < limit {
+		// Collect the formats of the last two chosen posts.
+		recentFmts := map[model.Format]bool{}
+		if n := len(result); n >= 1 {
+			recentFmts[result[n-1].Format] = true
+		}
+		if n := len(result); n >= 2 {
+			recentFmts[result[n-2].Format] = true
+		}
+
+		diverse, fallback := -1, -1
+		for i, p := range posts {
+			if used[i] {
+				continue
+			}
+			if fallback == -1 {
+				fallback = i // best un-used post (score order preserved)
+			}
+			if !recentFmts[p.Format] && diverse == -1 {
+				diverse = i // first un-used post with a fresh format
+			}
+			if diverse != -1 {
+				break
+			}
+		}
+
+		chosen := diverse
+		if chosen == -1 {
+			chosen = fallback
+		}
+		if chosen == -1 {
+			break // exhausted
+		}
+
+		used[chosen] = true
+		result = append(result, posts[chosen])
+	}
+
+	return result
+}
+
+func (s *PostService) SearchPosts(ctx context.Context, query string, limit, offset int, format string) ([]*model.Post, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
@@ -164,9 +311,9 @@ func (s *PostService) SearchPosts(ctx context.Context, query string, limit, offs
 		offset = 0
 	}
 	if query == "" {
-		return s.store.ListRecent(ctx, limit, offset)
+		return s.store.ListRecent(ctx, limit, offset, format)
 	}
-	return s.store.Search(ctx, query, limit, offset)
+	return s.store.Search(ctx, query, limit, offset, format)
 }
 
 func (s *PostService) LikePost(ctx context.Context, slug, fpHash string) (int, bool, error) {
@@ -207,6 +354,21 @@ func (s *PostService) AddComment(ctx context.Context, slug, content string, pare
 	}
 
 	return s.store.CreateComment(ctx, post.ID, parentID, content)
+}
+
+func (s *PostService) ListVersions(ctx context.Context, slug string, limit int) ([]*model.PostVersion, int, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 50
+	}
+	post, err := s.store.GetBySlug(ctx, slug)
+	if err != nil {
+		return nil, 0, err
+	}
+	versions, err := s.store.ListVersions(ctx, post.ID, limit)
+	if err != nil {
+		return nil, 0, err
+	}
+	return versions, post.VersionCount, nil
 }
 
 func (s *PostService) ListComments(ctx context.Context, slug string) ([]*model.Comment, error) {
@@ -260,4 +422,93 @@ func generateRandomSlug(n int) (string, error) {
 		result[i] = slugChars[int(byt)%len(slugChars)]
 	}
 	return string(result), nil
+}
+
+func generateNumericCode(n int) string {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		// Fallback — should never happen
+		return strings.Repeat("0", n)
+	}
+	for i, byt := range b {
+		b[i] = '0' + byt%10
+	}
+	return string(b)
+}
+
+// VerifyViewResult holds the result of a view verification attempt.
+type VerifyViewResult struct {
+	Granted bool   `json:"granted"`
+	Content string `json:"content,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+// VerifyView checks a credential against the post's view policy and returns the full content if valid.
+func (s *PostService) VerifyView(ctx context.Context, slug, credential string, llmClient LLMChatter) (*VerifyViewResult, error) {
+	post, err := s.store.GetBySlug(ctx, slug)
+	if err != nil {
+		return nil, err
+	}
+
+	switch post.ViewPolicy {
+	case model.ViewPolicyOpen:
+		return &VerifyViewResult{Granted: true, Content: post.Content}, nil
+
+	case model.ViewPolicyPassword:
+		if post.ViewPassword != nil && *post.ViewPassword == credential {
+			return &VerifyViewResult{Granted: true, Content: post.Content}, nil
+		}
+		return &VerifyViewResult{Granted: false, Error: "incorrect password"}, nil
+
+	case model.ViewPolicyHumanQA:
+		if post.ViewQAAnswer == nil {
+			return &VerifyViewResult{Granted: false, Error: "no answer configured"}, nil
+		}
+		if strings.EqualFold(strings.TrimSpace(credential), strings.TrimSpace(*post.ViewQAAnswer)) {
+			return &VerifyViewResult{Granted: true, Content: post.Content}, nil
+		}
+		return &VerifyViewResult{Granted: false, Error: "incorrect answer"}, nil
+
+	case model.ViewPolicyAIQA:
+		if llmClient == nil {
+			return &VerifyViewResult{Granted: false, Error: "AI verification is temporarily unavailable"}, nil
+		}
+		question := ""
+		if post.ViewQAQuestion != nil {
+			question = *post.ViewQAQuestion
+		}
+		granted, err := verifyAIQA(ctx, llmClient, question, credential)
+		if err != nil {
+			return &VerifyViewResult{Granted: false, Error: "AI verification failed, please try again"}, nil
+		}
+		if granted {
+			return &VerifyViewResult{Granted: true, Content: post.Content}, nil
+		}
+		return &VerifyViewResult{Granted: false, Error: "AI determined your answer is incorrect"}, nil
+	}
+
+	return &VerifyViewResult{Granted: false, Error: "unknown view policy"}, nil
+}
+
+// LLMChatter is a minimal interface for AI QA verification.
+type LLMChatter interface {
+	Chat(ctx context.Context, messages []llm.Message) (string, error)
+}
+
+func verifyAIQA(ctx context.Context, client LLMChatter, question, answer string) (bool, error) {
+	prompt := fmt.Sprintf(
+		"You are a gatekeeper. The question is: %q\nThe user answered: %q\n\n"+
+			"Is the answer correct or reasonable? Reply with exactly YES or NO.",
+		question, answer,
+	)
+	resp, err := client.Chat(ctx, []llm.Message{
+		{Role: "user", Content: prompt},
+	})
+	if err != nil {
+		return false, err
+	}
+	verdict := strings.ToUpper(strings.TrimSpace(resp))
+	// Only accept exact YES (possibly with punctuation like "YES." or "YES!")
+	verdict = strings.TrimRight(verdict, ".!,;")
+	return verdict == "YES", nil
 }

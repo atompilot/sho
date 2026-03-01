@@ -6,6 +6,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/atompilot/sho-api/internal/handler"
 	"github.com/atompilot/sho-api/internal/llm"
@@ -17,7 +20,8 @@ import (
 )
 
 func main() {
-	ctx := context.Background()
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
 
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
@@ -42,22 +46,30 @@ func main() {
 
 	postStore := store.NewPostStore(pool)
 	postSvc := service.NewPostService(postStore)
-	postHandler := handler.NewPostHandler(postSvc)
 
+	var llmChatter service.LLMChatter
+
+	var llmClient *llm.Client
 	var chatHandler *handler.ChatHandler
-	if arkKey := os.Getenv("ARK_API_KEY"); arkKey != "" {
-		arkBaseURL := os.Getenv("ARK_BASE_URL")
-		if arkBaseURL == "" {
-			arkBaseURL = "https://ark.cn-beijing.volces.com/api/v3"
+	if apiKey := os.Getenv("OPENAI_API_KEY"); apiKey != "" {
+		baseURL := os.Getenv("OPENAI_BASE_URL")
+		model := os.Getenv("OPENAI_MODEL")
+		if model == "" {
+			log.Fatal("OPENAI_MODEL is required when OPENAI_API_KEY is set")
 		}
-		arkModel := os.Getenv("ARK_MODEL")
-		if arkModel == "" {
-			arkModel = "doubao-seed-2-0-lite-260215"
-		}
-		llmClient := llm.NewClient(arkKey, arkBaseURL, arkModel)
+		llmClient = llm.NewClient(apiKey, baseURL, model)
+		llmChatter = llmClient
 		chatHandler = handler.NewChatHandler(llmClient)
-		log.Printf("LLM enabled: model=%s base=%s", arkModel, arkBaseURL)
+		log.Printf("LLM enabled: model=%s base=%s", model, baseURL)
 	}
+
+	// Start AI title worker if LLM is available.
+	if llmClient != nil {
+		worker := service.NewAITitleWorker(postStore, llmClient, 30*time.Second)
+		go worker.Run(ctx)
+	}
+
+	postHandler := handler.NewPostHandler(postSvc, llmChatter)
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
@@ -74,8 +86,10 @@ func main() {
 		r.Get("/posts", postHandler.List)
 		r.Post("/posts/{slug}/view", postHandler.RecordView)
 		r.Post("/posts/{slug}/like", postHandler.Like)
+		r.Get("/posts/{slug}/versions", postHandler.ListVersions)
 		r.Get("/posts/{slug}/comments", postHandler.ListComments)
 		r.Post("/posts/{slug}/comments", postHandler.CreateComment)
+		r.Post("/posts/{slug}/verify-view", postHandler.VerifyView)
 
 		if chatHandler != nil {
 			r.Post("/chat", chatHandler.Chat)
@@ -97,8 +111,22 @@ func main() {
 	r.Get("/mcp/sse", sseServer.SSEHandler().ServeHTTP)
 	r.Post("/mcp/message", sseServer.MessageHandler().ServeHTTP)
 
+	srv := &http.Server{Addr: ":" + port, Handler: r}
+
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("http shutdown: %v", err)
+		}
+	}()
+
 	log.Printf("sho-api listening on :%s (REST /api/v1, MCP /mcp)", port)
-	log.Fatal(http.ListenAndServe(":"+port, r))
+	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+		log.Fatalf("http server: %v", err)
+	}
+	log.Println("sho-api stopped")
 }
 
 func corsMiddleware(next http.Handler) http.Handler {

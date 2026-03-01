@@ -55,6 +55,18 @@ func publishTool() mcp.Tool {
 		mcp.WithString("password",
 			mcp.Description("Password (required when policy=password)."),
 		),
+		mcp.WithString("view_policy",
+			mcp.Description("View policy: open, password, human-qa, ai-qa (default: open)."),
+		),
+		mcp.WithString("view_password",
+			mcp.Description("View password (for view_policy=password). Auto-generated if empty."),
+		),
+		mcp.WithString("view_qa_question",
+			mcp.Description("Question for human-qa or ai-qa view policy."),
+		),
+		mcp.WithString("view_qa_answer",
+			mcp.Description("Answer for human-qa view policy (exact match)."),
+		),
 	)
 }
 
@@ -156,10 +168,24 @@ func publishHandler(svc *service.PostService) mcpserver.ToolHandlerFunc {
 			pol = model.PolicyOpen
 		}
 
+		vpStr := req.GetString("view_policy", "open")
+		var vp model.ViewPolicy
+		switch vpStr {
+		case "password":
+			vp = model.ViewPolicyPassword
+		case "human-qa":
+			vp = model.ViewPolicyHumanQA
+		case "ai-qa":
+			vp = model.ViewPolicyAIQA
+		default:
+			vp = model.ViewPolicyOpen
+		}
+
 		input := service.CreatePostInput{
-			Content: content,
-			Format:  fmt_,
-			Policy:  pol,
+			Content:    content,
+			Format:     fmt_,
+			Policy:     pol,
+			ViewPolicy: vp,
 		}
 
 		if title := req.GetString("title", ""); title != "" {
@@ -167,6 +193,15 @@ func publishHandler(svc *service.PostService) mcpserver.ToolHandlerFunc {
 		}
 		if password := req.GetString("password", ""); password != "" {
 			input.Password = &password
+		}
+		if vpw := req.GetString("view_password", ""); vpw != "" {
+			input.ViewPassword = &vpw
+		}
+		if vqq := req.GetString("view_qa_question", ""); vqq != "" {
+			input.ViewQAQuestion = &vqq
+		}
+		if vqa := req.GetString("view_qa_answer", ""); vqa != "" {
+			input.ViewQAAnswer = &vqa
 		}
 		resp, err := svc.CreatePost(ctx, input)
 		if err != nil {
@@ -257,7 +292,7 @@ func listHandler(svc *service.PostService) mcpserver.ToolHandlerFunc {
 		limit := req.GetInt("limit", 20)
 		offset := req.GetInt("offset", 0)
 
-		posts, err := svc.ListPosts(ctx, limit, offset)
+		posts, err := svc.ListPosts(ctx, limit, offset, "")
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("list posts: %v", err)), nil
 		}

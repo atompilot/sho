@@ -5,9 +5,13 @@ interface Post {
   id: string
   slug: string
   title?: string
-  content: string
-  format: 'markdown' | 'html' | 'txt' | 'jsx'
+  ai_title?: string
+  content?: string
+  preview?: string
+  format: 'markdown' | 'html' | 'txt' | 'jsx' | 'svg' | 'csv' | 'json' | 'lottie' | 'p5' | 'reveal' | 'glsl'
   policy: string
+  view_policy?: 'open' | 'password' | 'human-qa' | 'ai-qa'
+  view_qa_question?: string
   views: number
   likes: number
   created_at: string
@@ -15,13 +19,19 @@ interface Post {
 }
 
 async function getPost(slug: string): Promise<Post | null> {
-  const apiUrl = process.env.API_URL || 'http://localhost:15080'
-  const res = await fetch(`${apiUrl}/api/v1/posts/${slug}`, {
-    next: { revalidate: 60 },
-  })
-  if (res.status === 404) return null
-  if (!res.ok) throw new Error('Failed to fetch post')
-  return res.json()
+  try {
+    const apiUrl = process.env.API_URL || 'http://localhost:15080'
+    const res = await fetch(`${apiUrl}/api/v1/posts/${slug}`, {
+      next: { revalidate: 60 },
+    })
+    if (res.status === 404) return null
+    if (!res.ok) throw new Error(`fetch post failed: ${res.status}`)
+    return res.json()
+  } catch (err) {
+    // Re-throw all errors (network failures, API errors) so Next.js surfaces a 500
+    // Only return null for explicit 404 (handled above before this catch)
+    throw err
+  }
 }
 
 export default async function PostPage({
@@ -43,5 +53,5 @@ export async function generateMetadata({
 }) {
   const { slug } = await params
   const post = await getPost(slug)
-  return { title: post?.title ?? slug }
+  return { title: post?.ai_title || post?.title || slug }
 }

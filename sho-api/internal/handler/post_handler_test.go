@@ -39,7 +39,7 @@ func testServer(t *testing.T) (*httptest.Server, func()) {
 
 	postStore := store.NewPostStore(pool)
 	postSvc := service.NewPostService(postStore)
-	h := handler.NewPostHandler(postSvc)
+	h := handler.NewPostHandler(postSvc, nil)
 
 	r := chi.NewRouter()
 	r.Post("/api/v1/posts", h.Create)

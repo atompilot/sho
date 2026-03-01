@@ -6,9 +6,14 @@ import { ContentRenderer } from './ContentRenderer'
 
 interface Post {
   slug: string
-  content: string
-  format: 'markdown' | 'html' | 'txt' | 'jsx'
+  title?: string
+  ai_title?: string
+  content?: string
+  preview?: string
+  format: 'markdown' | 'html' | 'txt' | 'jsx' | 'svg' | 'csv' | 'json' | 'lottie' | 'p5' | 'reveal' | 'glsl'
   policy: string
+  view_policy?: 'open' | 'password' | 'human-qa' | 'ai-qa'
+  view_qa_question?: string
   views: number
   likes: number
   created_at: string
@@ -43,7 +48,6 @@ function buildCommentThreads(comments: Comment[]): CommentThread[] {
     }
   }
 
-  // Top-level: newest first; replies: oldest first (already ASC from API)
   topLevel.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
   return topLevel.map(c => ({
@@ -152,6 +156,13 @@ const HomeIcon = () => (
   </svg>
 )
 
+const LockIcon = () => (
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+  </svg>
+)
+
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime()
   const mins = Math.floor(diff / 60000)
@@ -160,6 +171,12 @@ function timeAgo(dateStr: string): string {
   const hours = Math.floor(mins / 60)
   if (hours < 24) return `${hours}小时前`
   return `${Math.floor(hours / 24)}天前`
+}
+
+const VIEW_POLICY_LABELS: Record<string, string> = {
+  'password': 'Enter password to view',
+  'human-qa': 'Answer the question to view',
+  'ai-qa': 'Answer the question to view (AI judged)',
 }
 
 export function PostViewer({ post, initialLikes, initialCommentsCount }: {
@@ -171,6 +188,7 @@ export function PostViewer({ post, initialLikes, initialCommentsCount }: {
   const [mode, setMode] = useState<'preview' | 'source'>('preview')
   const [pos, setPos] = useState({ x: 0, y: 0 })
   const [mounted, setMounted] = useState(false)
+  const [views, setViews] = useState(post.views ?? 0)
   const [likes, setLikes] = useState(initialLikes ?? post.likes ?? 0)
   const [liked, setLiked] = useState(false)
   const [commentsCount, setCommentsCount] = useState(initialCommentsCount ?? 0)
@@ -179,33 +197,65 @@ export function PostViewer({ post, initialLikes, initialCommentsCount }: {
   const [commentInput, setCommentInput] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [replyTo, setReplyTo] = useState<{ id: string; content: string } | null>(null)
-  const [showEdit, setShowEdit] = useState<false | 'password' | 'editor'>(false)
-  const [editContent, setEditContent] = useState('')
-  const [editPassword, setEditPassword] = useState('')
-  const [editError, setEditError] = useState('')
-  const [editSaving, setEditSaving] = useState(false)
   const [editToast, setEditToast] = useState('')
+
+  // View policy unlock state
+  const needsUnlock = post.view_policy && post.view_policy !== 'open'
+  const [unlocked, setUnlocked] = useState(false)
+  const [unlockedContent, setUnlockedContent] = useState<string | null>(null)
+  const [credential, setCredential] = useState('')
+  const [verifyError, setVerifyError] = useState('')
+  const [verifying, setVerifying] = useState(false)
 
   const dragging = useRef(false)
   const didDrag = useRef(false)
   const origin = useRef({ mouseX: 0, mouseY: 0, btnX: 0, btnY: 0 })
 
+  // Check sessionStorage for previous unlock
   useEffect(() => {
-    setPos({ x: window.innerWidth - 72, y: window.innerHeight - 200 })
+    if (needsUnlock) {
+      const cached = sessionStorage.getItem(`unlocked:${post.slug}`)
+      if (cached) {
+        setUnlocked(true)
+        setUnlockedContent(cached)
+      }
+    }
+  }, [needsUnlock, post.slug])
+
+  useEffect(() => {
+    const saved = localStorage.getItem('sho:fab-pos')
+    if (saved) {
+      try {
+        const { x, y } = JSON.parse(saved)
+        setPos({
+          x: Math.min(x, window.innerWidth - 60),
+          y: Math.min(y, window.innerHeight - 320),
+        })
+      } catch {
+        setPos({ x: window.innerWidth - 72, y: window.innerHeight - 340 })
+      }
+    } else {
+      setPos({ x: window.innerWidth - 72, y: window.innerHeight - 340 })
+    }
     setMounted(true)
 
-    // 从 localStorage 恢复点赞状态
     if (localStorage.getItem(`liked:${post.slug}`) === '1') {
       setLiked(true)
     }
 
-    // 从 API 获取最新点赞数（SSR 数据可能有缓存延迟）
-    fetch(`${API_BASE}/api/v1/posts/${post.slug}`)
+    fetch(`${API_BASE}/api/v1/posts/${post.slug}/view`, { method: 'POST' })
       .then(r => r.ok ? r.json() : null)
-      .then(data => { if (data?.likes != null) setLikes(data.likes) })
+      .then(data => { if (data?.views != null) setViews(data.views) })
       .catch(() => {})
 
-    // 从 API 获取最新评论数
+    fetch(`${API_BASE}/api/v1/posts/${post.slug}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.likes != null) setLikes(data.likes)
+        if (data?.views != null) setViews(data.views)
+      })
+      .catch(() => {})
+
     fetch(`${API_BASE}/api/v1/posts/${post.slug}/comments`)
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (Array.isArray(data)) setCommentsCount(data.length) })
@@ -229,13 +279,24 @@ export function PostViewer({ post, initialLikes, initialCommentsCount }: {
       if (Math.abs(dx) > 4 || Math.abs(dy) > 4) didDrag.current = true
       setPos({
         x: clamp(origin.current.btnX + dx, 8, window.innerWidth - 60),
-        y: clamp(origin.current.btnY + dy, 8, window.innerHeight - 180),
+        y: clamp(origin.current.btnY + dy, 8, window.innerHeight - 320),
       })
     }
 
     const onMouseMove = (e: MouseEvent) => onMove(e.clientX, e.clientY)
     const onTouchMove = (e: TouchEvent) => onMove(e.touches[0].clientX, e.touches[0].clientY)
-    const onUp = () => { dragging.current = false }
+    const onUp = () => {
+      if (dragging.current && didDrag.current) {
+        const el = document.querySelector('[data-fab]') as HTMLElement | null
+        if (el) {
+          localStorage.setItem('sho:fab-pos', JSON.stringify({
+            x: parseInt(el.style.left),
+            y: parseInt(el.style.top),
+          }))
+        }
+      }
+      dragging.current = false
+    }
 
     window.addEventListener('mousemove', onMouseMove)
     window.addEventListener('mouseup', onUp)
@@ -322,65 +383,164 @@ export function PostViewer({ post, initialLikes, initialCommentsCount }: {
       setTimeout(() => setEditToast(''), 1500)
       return
     }
-    if (p === 'owner-only') {
-      setEditToast('This post can only be edited via the manage link')
-      setTimeout(() => setEditToast(''), 1500)
-      return
-    }
-    if (p === 'password') {
-      setEditPassword('')
-      setEditError('')
-      setShowEdit('password')
-      return
-    }
-    // open or ai-review: go straight to editor
-    setEditContent(post.content)
-    setEditError('')
-    setShowEdit('editor')
+    router.push(`/edit/${post.slug}`)
   }
 
-  const unlockWithPassword = () => {
-    if (!editPassword.trim()) return
-    setEditContent(post.content)
-    setEditError('')
-    setShowEdit('editor')
-  }
-
-  const submitEdit = async () => {
-    if (editSaving) return
-    setEditSaving(true)
-    setEditError('')
+  const handleVerifyView = async () => {
+    if (!credential.trim() || verifying) return
+    setVerifying(true)
+    setVerifyError('')
     try {
-      const credential = post.policy === 'password' ? editPassword : ''
-      const res = await fetch(`${API_BASE}/api/v1/posts/${post.slug}`, {
-        method: 'PUT',
+      const res = await fetch(`${API_BASE}/api/v1/posts/${post.slug}/verify-view`, {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: editContent, credential }),
+        body: JSON.stringify({ credential: credential.trim() }),
       })
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({ error: 'Failed to save' }))
-        setEditError(data.error || `Error ${res.status}`)
-        return
+      const data = await res.json()
+      if (data.granted && data.content) {
+        setUnlocked(true)
+        setUnlockedContent(data.content)
+        sessionStorage.setItem(`unlocked:${post.slug}`, data.content)
+      } else {
+        setVerifyError(data.error || 'Verification failed')
       }
-      setShowEdit(false)
-      window.location.reload()
     } catch {
-      setEditError('Network error')
+      setVerifyError('Network error')
     } finally {
-      setEditSaving(false)
+      setVerifying(false)
     }
   }
+
+  // Determine the content to render
+  const displayContent = unlocked && unlockedContent ? unlockedContent : (post.content || '')
+  const isLocked = needsUnlock && !unlocked
 
   return (
     <>
-      <ContentRenderer content={post.content} format={post.format} mode={mode} />
+      {/* Content area with optional blur */}
+      <div style={{ position: 'relative' }}>
+        {isLocked ? (
+          <>
+            {/* Blurred preview background */}
+            <div style={{ filter: 'blur(8px)', pointerEvents: 'none', userSelect: 'none', opacity: 0.6 }}>
+              <div style={{
+                padding: '40px 20px',
+                maxWidth: 800,
+                margin: '0 auto',
+                fontFamily: 'ui-monospace, monospace',
+                fontSize: 14,
+                lineHeight: 1.8,
+                color: '#666',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+              }}>
+                {post.preview || ''}
+                {'\n\n...'}
+              </div>
+            </div>
+
+            {/* Unlock overlay card */}
+            <div style={{
+              position: 'fixed',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 40,
+              background: 'rgba(0,0,0,0.3)',
+              backdropFilter: 'blur(2px)',
+            }}>
+              <div style={{
+                background: 'white',
+                borderRadius: 16,
+                padding: '32px 28px',
+                width: '100%',
+                maxWidth: 380,
+                boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
+                textAlign: 'center',
+              }}>
+                <div style={{ marginBottom: 16, color: '#6b7280' }}>
+                  <LockIcon />
+                </div>
+                <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8, color: '#111' }}>
+                  {VIEW_POLICY_LABELS[post.view_policy || ''] || 'Content Protected'}
+                </h2>
+
+                {(post.view_policy === 'human-qa' || post.view_policy === 'ai-qa') && post.view_qa_question && (
+                  <p style={{
+                    fontSize: 14, color: '#374151', marginBottom: 16,
+                    background: '#f3f4f6', borderRadius: 8, padding: '10px 14px',
+                    textAlign: 'left', lineHeight: 1.6,
+                  }}>
+                    {post.view_qa_question}
+                  </p>
+                )}
+
+                <input
+                  type={post.view_policy === 'password' ? 'password' : 'text'}
+                  value={credential}
+                  onChange={e => setCredential(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') handleVerifyView() }}
+                  placeholder={post.view_policy === 'password' ? 'Enter password' : 'Your answer'}
+                  autoFocus
+                  style={{
+                    width: '100%',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: 10,
+                    padding: '10px 14px',
+                    fontSize: 14,
+                    outline: 'none',
+                    marginBottom: 12,
+                    boxSizing: 'border-box',
+                  }}
+                />
+
+                {verifyError && (
+                  <p style={{ fontSize: 13, color: '#ef4444', marginBottom: 10 }}>
+                    {verifyError}
+                  </p>
+                )}
+
+                <button
+                  onClick={handleVerifyView}
+                  disabled={verifying || !credential.trim()}
+                  style={{
+                    width: '100%',
+                    background: credential.trim() ? '#111' : '#d1d5db',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: 10,
+                    padding: '10px 0',
+                    fontSize: 14,
+                    fontWeight: 500,
+                    cursor: credential.trim() ? 'pointer' : 'default',
+                    opacity: verifying ? 0.6 : 1,
+                    transition: 'background 0.2s',
+                  }}
+                >
+                  {verifying ? 'Verifying...' : 'Unlock'}
+                </button>
+              </div>
+            </div>
+          </>
+        ) : (
+          <ContentRenderer content={displayContent} format={post.format} mode={mode} />
+        )}
+      </div>
 
       {mounted && (
         <div
+          data-fab
           style={panelStyle(pos.x, pos.y)}
           onMouseDown={(e) => { startDrag(e.clientX, e.clientY); e.preventDefault() }}
           onTouchStart={(e) => startDrag(e.touches[0].clientX, e.touches[0].clientY)}
         >
+          <ActionBtn
+            icon={<EyeIcon />}
+            count={views}
+            title="浏览数"
+          />
+          <Divider />
           <ActionBtn
             icon={<HeartIcon filled={liked} />}
             count={likes}
@@ -416,7 +576,7 @@ export function PostViewer({ post, initialLikes, initialCommentsCount }: {
         </div>
       )}
 
-      {/* Toast for locked / owner-only */}
+      {/* Toast for locked */}
       {editToast && (
         <div style={{
           position: 'fixed', bottom: 32, left: '50%', transform: 'translateX(-50%)',
@@ -427,119 +587,8 @@ export function PostViewer({ post, initialLikes, initialCommentsCount }: {
         </div>
       )}
 
-      {/* Password unlock panel */}
-      {showEdit === 'password' && (
-        <div style={{
-          position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 60,
-          background: 'rgba(15,15,15,0.95)', backdropFilter: 'blur(12px)',
-          borderTop: '1px solid rgba(255,255,255,0.1)',
-          padding: 24, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12,
-        }}>
-          <span style={{ color: 'white', fontSize: 14, fontWeight: 500 }}>Enter password to edit</span>
-          <div style={{ display: 'flex', gap: 8, width: '100%', maxWidth: 360 }}>
-            <input
-              type="password"
-              value={editPassword}
-              onChange={e => setEditPassword(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') unlockWithPassword() }}
-              placeholder="Password"
-              autoFocus
-              style={{
-                flex: 1, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)',
-                borderRadius: 8, padding: '8px 12px', color: 'white', fontSize: 13, outline: 'none',
-              }}
-            />
-            <button
-              onClick={unlockWithPassword}
-              style={{
-                background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 8,
-                color: 'white', padding: '0 16px', cursor: 'pointer', fontSize: 13,
-              }}
-            >
-              Unlock
-            </button>
-            <button
-              onClick={() => setShowEdit(false)}
-              style={{
-                background: 'none', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8,
-                color: 'rgba(255,255,255,0.6)', padding: '0 12px', cursor: 'pointer', fontSize: 13,
-              }}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Edit panel */}
-      {showEdit === 'editor' && (
-        <div style={{
-          position: 'fixed', bottom: 0, left: 0, right: 0,
-          height: 'min(60vh, 500px)', zIndex: 60,
-          background: 'rgba(15,15,15,0.95)', backdropFilter: 'blur(12px)',
-          borderTop: '1px solid rgba(255,255,255,0.1)',
-          display: 'flex', flexDirection: 'column',
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-            <span style={{ color: 'white', fontSize: 14, fontWeight: 500 }}>
-              Edit
-              {post.policy === 'ai-review' && (
-                <span style={{ marginLeft: 8, fontSize: 11, color: 'rgba(255,255,255,0.5)', fontWeight: 400 }}>
-                  Your changes will be reviewed by AI before being applied
-                </span>
-              )}
-            </span>
-            <button
-              onClick={() => setShowEdit(false)}
-              style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)', cursor: 'pointer', fontSize: 18, lineHeight: 1, padding: 4 }}
-            >
-              ×
-            </button>
-          </div>
-
-          <textarea
-            value={editContent}
-            onChange={e => setEditContent(e.target.value)}
-            style={{
-              flex: 1, margin: '8px 16px', background: 'rgba(255,255,255,0.05)',
-              border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8,
-              padding: 12, color: 'white', fontSize: 13, fontFamily: 'monospace',
-              resize: 'none', outline: 'none',
-            }}
-          />
-
-          {editError && (
-            <p style={{ margin: '0 16px 4px', color: '#f87171', fontSize: 12 }}>{editError}</p>
-          )}
-
-          <div style={{ padding: '8px 16px 12px', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-            <button
-              onClick={() => setShowEdit(false)}
-              style={{
-                background: 'none', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 8,
-                color: 'rgba(255,255,255,0.6)', padding: '8px 16px', cursor: 'pointer', fontSize: 13,
-              }}
-            >
-              Cancel
-            </button>
-            <button
-              onClick={submitEdit}
-              disabled={editSaving}
-              style={{
-                background: 'rgba(255,255,255,0.15)', border: 'none', borderRadius: 8,
-                color: 'white', padding: '8px 20px', cursor: 'pointer', fontSize: 13,
-                opacity: editSaving ? 0.5 : 1,
-              }}
-            >
-              {editSaving ? 'Saving...' : 'Save'}
-            </button>
-          </div>
-        </div>
-      )}
-
       {showComments && (
         <>
-          {/* Backdrop */}
           <div
             onClick={() => { setShowComments(false); setReplyTo(null) }}
             style={{
@@ -565,7 +614,6 @@ export function PostViewer({ post, initialLikes, initialCommentsCount }: {
               boxShadow: '0 -4px 40px rgba(0,0,0,0.5)',
             }}
           >
-            {/* Header */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
               <span style={{ color: 'white', fontSize: 15, fontWeight: 600 }}>评论 {commentsCount > 0 ? `(${commentsCount})` : ''}</span>
               <button
@@ -576,14 +624,12 @@ export function PostViewer({ post, initialLikes, initialCommentsCount }: {
               </button>
             </div>
 
-            {/* Comment threads */}
             <div style={{ flex: 1, overflowY: 'auto', padding: '4px 20px 8px' }}>
               {comments.length === 0 ? (
                 <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13, textAlign: 'center', marginTop: 32 }}>还没有评论，来第一个吧</p>
               ) : (
                 buildCommentThreads(comments).map(thread => (
                   <div key={thread.comment.id} style={{ padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                    {/* Level 1 comment */}
                     <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: 14, margin: 0, lineHeight: 1.6 }}>{thread.comment.content}</p>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
                       <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>{timeAgo(thread.comment.created_at)}</span>
@@ -595,7 +641,6 @@ export function PostViewer({ post, initialLikes, initialCommentsCount }: {
                       </button>
                     </div>
 
-                    {/* Level 2 replies */}
                     {thread.replies.length > 0 && (
                       <div style={{ marginLeft: 20, marginTop: 8, borderLeft: '2px solid rgba(255,255,255,0.08)', paddingLeft: 12 }}>
                         {thread.replies.map(reply => (
@@ -619,9 +664,7 @@ export function PostViewer({ post, initialLikes, initialCommentsCount }: {
               )}
             </div>
 
-            {/* Input area */}
             <div style={{ padding: '8px 20px 12px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-              {/* Reply indicator */}
               {replyTo && (
                 <div style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
