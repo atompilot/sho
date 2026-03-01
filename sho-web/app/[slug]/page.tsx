@@ -14,7 +14,7 @@ interface Post {
 }
 
 async function getPost(slug: string): Promise<Post | null> {
-  const apiUrl = process.env.API_URL || 'http://localhost:8080'
+  const apiUrl = process.env.API_URL || 'http://localhost:15080'
   const res = await fetch(`${apiUrl}/api/v1/posts/${slug}`, {
     next: { revalidate: 60 },
   })
