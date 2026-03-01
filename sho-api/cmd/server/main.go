@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/atompilot/sho-api/internal/handler"
+	"github.com/atompilot/sho-api/internal/llm"
 	shoMCP "github.com/atompilot/sho-api/internal/mcp"
 	"github.com/atompilot/sho-api/internal/service"
 	"github.com/atompilot/sho-api/internal/store"
@@ -43,6 +44,21 @@ func main() {
 	postSvc := service.NewPostService(postStore)
 	postHandler := handler.NewPostHandler(postSvc)
 
+	var chatHandler *handler.ChatHandler
+	if arkKey := os.Getenv("ARK_API_KEY"); arkKey != "" {
+		arkBaseURL := os.Getenv("ARK_BASE_URL")
+		if arkBaseURL == "" {
+			arkBaseURL = "https://ark.cn-beijing.volces.com/api/v3"
+		}
+		arkModel := os.Getenv("ARK_MODEL")
+		if arkModel == "" {
+			arkModel = "doubao-seed-2-0-lite-260215"
+		}
+		llmClient := llm.NewClient(arkKey, arkBaseURL, arkModel)
+		chatHandler = handler.NewChatHandler(llmClient)
+		log.Printf("LLM enabled: model=%s base=%s", arkModel, arkBaseURL)
+	}
+
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
@@ -51,13 +67,19 @@ func main() {
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Post("/posts", postHandler.Create)
 		r.Get("/posts/search", postHandler.Search)
+		r.Get("/posts/recommended", postHandler.ListRecommended)
 		r.Get("/posts/{slug}", postHandler.Get)
 		r.Put("/posts/{slug}", postHandler.Update)
 		r.Delete("/posts/{slug}", postHandler.Delete)
 		r.Get("/posts", postHandler.List)
+		r.Post("/posts/{slug}/view", postHandler.RecordView)
 		r.Post("/posts/{slug}/like", postHandler.Like)
 		r.Get("/posts/{slug}/comments", postHandler.ListComments)
 		r.Post("/posts/{slug}/comments", postHandler.CreateComment)
+
+		if chatHandler != nil {
+			r.Post("/chat", chatHandler.Chat)
+		}
 	})
 
 	port := os.Getenv("PORT")
