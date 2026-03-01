@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation'
-import { ContentRenderer } from '@/components/ContentRenderer'
+import { PostViewer } from '@/components/PostViewer'
 
 interface Post {
   id: string
@@ -32,23 +32,7 @@ export default async function PostPage({
   const post = await getPost(slug)
   if (!post) notFound()
 
-  return (
-    <main className="max-w-3xl mx-auto px-4 py-12">
-      {post.title && (
-        <h1 className="text-3xl font-bold mb-6 text-gray-900 dark:text-white">
-          {post.title}
-        </h1>
-      )}
-      <div className="mb-6 flex items-center gap-4 text-sm text-gray-500">
-        <span>{new Date(post.created_at).toLocaleDateString()}</span>
-        <span>{post.views} views</span>
-        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs">
-          {post.format}
-        </span>
-      </div>
-      <ContentRenderer content={post.content} format={post.format} />
-    </main>
-  )
+  return <PostViewer post={post} />
 }
 
 export async function generateMetadata({

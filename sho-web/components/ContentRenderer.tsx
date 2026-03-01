@@ -2,11 +2,11 @@
 
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { useState } from 'react'
 
 interface Props {
   content: string
   format: 'markdown' | 'html' | 'txt' | 'jsx'
+  mode: 'preview' | 'source'
 }
 
 // ── JSX srcdoc builder ───────────────────────────────────────────────────────
@@ -14,42 +14,35 @@ interface Props {
 function buildJsxSrcdoc(content: string): string {
   // Transform ES imports from 'react' → UMD global React
   let code = content
-    // import React, { useState } from 'react'  →  const { useState } = React
     .replace(
       /import\s+React\s*,\s*\{([^}]+)\}\s+from\s+['"]react['"]\s*;?/g,
       (_, named) => `const { ${named.trim()} } = React;`
     )
-    // import { useState, useEffect } from 'react'  →  const { ... } = React
     .replace(
       /import\s*\{([^}]+)\}\s+from\s+['"]react['"]\s*;?/g,
       (_, named) => `const { ${named.trim()} } = React;`
     )
-    // import React from 'react' / import * as React from 'react'  →  (noop)
     .replace(/import\s+(?:React|\*\s+as\s+React)\s+from\s+['"]react['"]\s*;?\n?/g, '')
 
-  // Capture and strip 'export default function Foo' / 'export default class Foo'
-  const namedDefaultMatch = code.match(
-    /export\s+default\s+(function|class)\s+(\w+)/
-  )
-  const componentName = namedDefaultMatch?.[2] ?? null
+  // Capture + strip 'export default function/class Foo'
+  const namedMatch = code.match(/export\s+default\s+(function|class)\s+(\w+)/)
+  const componentName = namedMatch?.[2] ?? null
   code = code.replace(/export\s+default\s+(?=function|class)/, '')
 
-  // Capture and strip standalone 'export default Foo'
-  const bareDefaultMatch = !componentName
+  // Capture + strip bare 'export default Foo'
+  const bareMatch = !componentName
     ? code.match(/export\s+default\s+(\w+)\s*;?\s*$/)
     : null
-  const bareComponent = bareDefaultMatch?.[1] ?? null
-  if (bareDefaultMatch) {
-    code = code.replace(bareDefaultMatch[0], '')
-  }
+  const bareComponent = bareMatch?.[1] ?? null
+  if (bareMatch) code = code.replace(bareMatch[0], '')
 
-  const finalComponent = componentName ?? bareComponent
-  const mountCode = finalComponent
-    ? `ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(${finalComponent}));`
+  const final = componentName ?? bareComponent
+  const mountCode = final
+    ? `ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(${final}));`
     : `document.getElementById('root').innerHTML =
-        '<p style="color:#888;font-size:13px">No default export found to render.</p>';`
+        '<p style="color:#888;font-size:13px;padding:16px">No default export found to render.</p>';`
 
-  // Prevent </script> inside user code from closing the outer script tag in srcdoc
+  // Prevent </script inside user code from closing outer tag in srcdoc
   const safe = (s: string) => s.replace(/<\/script/gi, '<\\/script')
 
   return `<!DOCTYPE html>
@@ -61,110 +54,110 @@ function buildJsxSrcdoc(content: string): string {
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"><\/script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"><\/script>
 <style>
-  body { margin: 16px; font-family: system-ui, sans-serif; line-height: 1.5; }
-  #err { color: #c00; font-size: 12px; white-space: pre-wrap; font-family: monospace; }
+  html,body{margin:0;padding:0;width:100%;height:100%}
+  body{font-family:system-ui,sans-serif;line-height:1.5}
+  #err{color:#c00;font-size:12px;white-space:pre-wrap;font-family:monospace;padding:16px}
 </style>
 </head>
 <body>
 <div id="root"></div>
 <div id="err"></div>
 <script type="text/babel" data-presets="react">
-try {
+try{
 ${safe(code)}
 ${safe(mountCode)}
-} catch (e) {
-  document.getElementById('err').textContent = String(e);
-}
+}catch(e){document.getElementById('err').textContent=String(e)}
 <\/script>
 </body>
 </html>`
 }
 
-// ── Shared primitives ────────────────────────────────────────────────────────
+// ── ContentRenderer ──────────────────────────────────────────────────────────
 
-function ResizableIframe({ srcdoc }: { srcdoc: string }) {
-  return (
-    <div
-      className="rounded border border-gray-200 overflow-hidden"
-      style={{ resize: 'vertical', minHeight: 240, height: 480 }}
-    >
+export function ContentRenderer({ content, format, mode }: Props) {
+  // Source mode — full-screen dark code view
+  if (mode === 'source') {
+    return (
+      <pre
+        style={{
+          position: 'fixed',
+          inset: 0,
+          margin: 0,
+          padding: '32px',
+          overflow: 'auto',
+          background: '#0d1117',
+          color: '#e6edf3',
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          fontSize: '13px',
+          lineHeight: '1.6',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+          zIndex: 10,
+        }}
+      >
+        {content}
+      </pre>
+    )
+  }
+
+  // HTML / JSX — full-screen iframe
+  if (format === 'html' || format === 'jsx') {
+    const srcdoc = format === 'jsx' ? buildJsxSrcdoc(content) : content
+    return (
       <iframe
         srcDoc={srcdoc}
         sandbox="allow-scripts"
-        className="w-full h-full"
-        style={{ border: 0, display: 'block' }}
+        style={{
+          position: 'fixed',
+          inset: 0,
+          width: '100%',
+          height: '100%',
+          border: 'none',
+          zIndex: 10,
+        }}
       />
-    </div>
-  )
-}
+    )
+  }
 
-function SourceView({ content }: { content: string }) {
-  return (
-    <pre className="whitespace-pre-wrap font-mono text-sm text-gray-800 bg-gray-50 dark:bg-gray-900 dark:text-gray-200 rounded border border-gray-200 p-4 overflow-auto">
-      {content}
-    </pre>
-  )
-}
+  // Markdown / TXT — full-screen scrollable reading view
+  const base: React.CSSProperties = {
+    position: 'fixed',
+    inset: 0,
+    overflowY: 'auto',
+    zIndex: 10,
+    background: 'white',
+  }
 
-function Tabs({
-  content,
-  preview,
-}: {
-  content: string
-  preview: React.ReactNode
-}) {
-  const [tab, setTab] = useState<'preview' | 'source'>('preview')
-  return (
-    <div>
-      <div className="flex gap-1 mb-3">
-        {(['preview', 'source'] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`px-3 py-1 text-xs rounded font-medium transition-colors ${
-              tab === t
-                ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900'
-                : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'
-            }`}
-          >
-            {t === 'preview' ? 'Preview' : 'Source'}
-          </button>
-        ))}
-      </div>
-      {tab === 'preview' ? preview : <SourceView content={content} />}
-    </div>
-  )
-}
-
-// ── Public component ─────────────────────────────────────────────────────────
-
-export function ContentRenderer({ content, format }: Props) {
   if (format === 'markdown') {
     return (
-      <div className="prose prose-gray max-w-none dark:prose-invert">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      <div style={base}>
+        <div
+          className="prose prose-gray max-w-3xl mx-auto dark:prose-invert"
+          style={{ padding: '48px 24px' }}
+        >
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+        </div>
       </div>
-    )
-  }
-
-  if (format === 'html') {
-    return (
-      <Tabs
-        content={content}
-        preview={<ResizableIframe srcdoc={content} />}
-      />
-    )
-  }
-
-  if (format === 'jsx') {
-    return (
-      <Tabs
-        content={content}
-        preview={<ResizableIframe srcdoc={buildJsxSrcdoc(content)} />}
-      />
     )
   }
 
   // txt
-  return <SourceView content={content} />
+  return (
+    <div style={base}>
+      <pre
+        style={{
+          maxWidth: 800,
+          margin: '0 auto',
+          padding: '48px 24px',
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          fontSize: '13px',
+          lineHeight: '1.6',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+        }}
+      >
+        {content}
+      </pre>
+    </div>
+  )
 }

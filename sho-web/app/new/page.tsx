@@ -6,7 +6,6 @@ type Policy = 'locked' | 'open' | 'password' | 'owner-only' | 'ai-review'
 type Format = 'markdown' | 'txt' | 'html' | 'jsx'
 
 export default function NewPostPage() {
-  const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
   const [format, setFormat] = useState<Format>('markdown')
   const [pol, setPol] = useState<Policy>('locked')
@@ -15,11 +14,9 @@ export default function NewPostPage() {
   const [slug, setSlug] = useState('')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<{
-    manage_url: string
     edit_token: string
     slug: string
   } | null>(null)
-
   const [error, setError] = useState('')
 
   async function handleSubmit(e: React.SyntheticEvent) {
@@ -28,7 +25,6 @@ export default function NewPostPage() {
     setError('')
 
     const body: Record<string, unknown> = { content, format, policy: pol }
-    if (title) body.title = title
     if (slug) body.slug = slug
     if (pol === 'password' && password) body.password = password
     if (pol === 'ai-review' && aiPrompt) body.ai_review_prompt = aiPrompt
@@ -70,10 +66,7 @@ export default function NewPostPage() {
           >
             Copy Manage Link
           </button>
-          <a
-            href={`/${result.slug}`}
-            className="border rounded px-4 py-2 text-sm"
-          >
+          <a href={`/${result.slug}`} className="border rounded px-4 py-2 text-sm">
             View Post
           </a>
         </div>
@@ -85,20 +78,14 @@ export default function NewPostPage() {
     <main className="max-w-3xl mx-auto px-4 py-12">
       <h1 className="text-2xl font-bold mb-8">New Sho</h1>
       <form onSubmit={handleSubmit} className="space-y-4">
-        <input
-          type="text"
-          placeholder="Title (optional)"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          className="w-full border rounded px-3 py-2 text-sm"
-        />
         <textarea
           placeholder="Content..."
           value={content}
           onChange={(e) => setContent(e.target.value)}
           required
-          rows={12}
+          rows={16}
           className="w-full border rounded px-3 py-2 text-sm font-mono"
+          autoFocus
         />
         <div className="flex gap-4 flex-wrap">
           <select
