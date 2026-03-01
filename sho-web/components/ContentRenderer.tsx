@@ -54,7 +54,7 @@ function buildJsxSrcdoc(content: string): string {
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"><\/script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"><\/script>
 <style>
-  html,body{margin:0;padding:0;width:100%;height:100%}
+  html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden}
   body{font-family:system-ui,sans-serif;line-height:1.5}
   #err{color:#c00;font-size:12px;white-space:pre-wrap;font-family:monospace;padding:16px}
 </style>
@@ -81,7 +81,7 @@ export function ContentRenderer({ content, format, mode }: Props) {
       <pre
         style={{
           position: 'fixed',
-          inset: 0,
+          top: 0, left: 0, right: 0, bottom: 0,
           margin: 0,
           padding: '32px',
           overflow: 'auto',
@@ -106,12 +106,12 @@ export function ContentRenderer({ content, format, mode }: Props) {
     return (
       <iframe
         srcDoc={srcdoc}
-        sandbox="allow-scripts"
+        sandbox={format === 'jsx' ? 'allow-scripts' : ''}
         style={{
           position: 'fixed',
-          inset: 0,
-          width: '100%',
-          height: '100%',
+          top: 0, left: 0, right: 0, bottom: 0,
+          width: '100vw',
+          height: '100vh',
           border: 'none',
           zIndex: 10,
         }}
@@ -122,7 +122,7 @@ export function ContentRenderer({ content, format, mode }: Props) {
   // Markdown / TXT — full-screen scrollable reading view
   const base: React.CSSProperties = {
     position: 'fixed',
-    inset: 0,
+    top: 0, left: 0, right: 0, bottom: 0,
     overflowY: 'auto',
     zIndex: 10,
     background: 'white',

@@ -1,9 +1,12 @@
 package handler
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log"
+	"net"
 	"net/http"
 	"strconv"
 
@@ -12,6 +15,7 @@ import (
 	"github.com/atompilot/sho-api/internal/service"
 	"github.com/atompilot/sho-api/internal/store"
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 )
 
 const maxRequestBodyBytes = 10 << 20 // 10 MB
@@ -46,7 +50,6 @@ func (h *PostHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Policy         model.Policy `json:"policy"`
 		Password       *string      `json:"password"`
 		AIReviewPrompt *string      `json:"ai_review_prompt"`
-		Slug           *string      `json:"slug"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -56,10 +59,10 @@ func (h *PostHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "content is required")
 		return
 	}
-	if req.Format == "" {
-		req.Format = model.FormatMarkdown
+	if req.Format == "" || req.Format == model.FormatAuto {
+		req.Format = service.DetectFormat(req.Content)
 	} else if !model.ValidFormat(req.Format) {
-		writeError(w, http.StatusBadRequest, "invalid format: must be one of markdown, html, txt, jsx")
+		writeError(w, http.StatusBadRequest, "invalid format: must be one of auto, markdown, html, txt, jsx")
 		return
 	}
 	if req.Policy == "" {
@@ -76,7 +79,6 @@ func (h *PostHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Policy:         req.Policy,
 		Password:       req.Password,
 		AIReviewPrompt: req.AIReviewPrompt,
-		Slug:           req.Slug,
 	})
 	if err != nil {
 		log.Printf("create post: %v", err)
@@ -176,4 +178,108 @@ func (h *PostHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, posts)
+}
+
+func (h *PostHandler) Search(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query().Get("q")
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+
+	posts, err := h.svc.SearchPosts(r.Context(), q, limit, offset)
+	if err != nil {
+		log.Printf("search posts: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to search posts")
+		return
+	}
+	if posts == nil {
+		posts = []*model.Post{}
+	}
+	writeJSON(w, http.StatusOK, posts)
+}
+
+func clientIP(r *http.Request) string {
+	ip, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return ip
+}
+
+func likeFingerprint(r *http.Request) string {
+	raw := clientIP(r) + "|" + r.Header.Get("User-Agent")
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
+}
+
+func (h *PostHandler) Like(w http.ResponseWriter, r *http.Request) {
+	slug := chi.URLParam(r, "slug")
+	newLikes, alreadyLiked, err := h.svc.LikePost(r.Context(), slug, likeFingerprint(r))
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "post not found")
+		return
+	}
+	if err != nil {
+		log.Printf("like post %s: %v", slug, err)
+		writeError(w, http.StatusInternalServerError, "failed to like post")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"likes": newLikes, "already_liked": alreadyLiked})
+}
+
+func (h *PostHandler) ListComments(w http.ResponseWriter, r *http.Request) {
+	slug := chi.URLParam(r, "slug")
+	comments, err := h.svc.ListComments(r.Context(), slug)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "post not found")
+		return
+	}
+	if err != nil {
+		log.Printf("list comments %s: %v", slug, err)
+		writeError(w, http.StatusInternalServerError, "failed to list comments")
+		return
+	}
+	if comments == nil {
+		comments = []*model.Comment{}
+	}
+	writeJSON(w, http.StatusOK, comments)
+}
+
+func (h *PostHandler) CreateComment(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+	slug := chi.URLParam(r, "slug")
+
+	var req struct {
+		Content  string  `json:"content"`
+		ParentID *string `json:"parent_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	var parentID *uuid.UUID
+	if req.ParentID != nil && *req.ParentID != "" {
+		parsed, err := uuid.Parse(*req.ParentID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid parent_id")
+			return
+		}
+		parentID = &parsed
+	}
+
+	comment, err := h.svc.AddComment(r.Context(), slug, req.Content, parentID)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "post not found")
+		return
+	}
+	if errors.Is(err, service.ErrEmptyComment) || errors.Is(err, service.ErrParentNotBelongToPost) || errors.Is(err, service.ErrParentCommentNotFound) {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err != nil {
+		log.Printf("create comment %s: %v", slug, err)
+		writeError(w, http.StatusInternalServerError, "failed to create comment")
+		return
+	}
+	writeJSON(w, http.StatusCreated, comment)
 }

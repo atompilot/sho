@@ -50,10 +50,14 @@ func main() {
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Post("/posts", postHandler.Create)
+		r.Get("/posts/search", postHandler.Search)
 		r.Get("/posts/{slug}", postHandler.Get)
 		r.Put("/posts/{slug}", postHandler.Update)
 		r.Delete("/posts/{slug}", postHandler.Delete)
 		r.Get("/posts", postHandler.List)
+		r.Post("/posts/{slug}/like", postHandler.Like)
+		r.Get("/posts/{slug}/comments", postHandler.ListComments)
+		r.Post("/posts/{slug}/comments", postHandler.CreateComment)
 	})
 
 	port := os.Getenv("PORT")

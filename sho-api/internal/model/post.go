@@ -23,6 +23,7 @@ const (
 	FormatHTML     Format = "html"
 	FormatTXT      Format = "txt"
 	FormatJSX      Format = "jsx"
+	FormatAuto     Format = "auto" // sentinel; resolved before persistence
 )
 
 type Post struct {
@@ -36,9 +37,18 @@ type Post struct {
 	AIReviewPrompt *string    `json:"ai_review_prompt,omitempty"`
 	EditToken      string     `json:"-"`
 	Views          int        `json:"views"`
+	Likes          int        `json:"likes"`
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
 	DeletedAt      *time.Time `json:"-"`
+}
+
+type Comment struct {
+	ID        uuid.UUID  `json:"id"`
+	PostID    uuid.UUID  `json:"post_id"`
+	ParentID  *uuid.UUID `json:"parent_id"`
+	Content   string     `json:"content"`
+	CreatedAt time.Time  `json:"created_at"`
 }
 
 type PostVersion struct {

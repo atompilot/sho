@@ -9,6 +9,7 @@ interface Post {
   format: 'markdown' | 'html' | 'txt' | 'jsx'
   policy: string
   views: number
+  likes: number
   created_at: string
   updated_at: string
 }
@@ -32,7 +33,7 @@ export default async function PostPage({
   const post = await getPost(slug)
   if (!post) notFound()
 
-  return <PostViewer post={post} />
+  return <PostViewer post={post} initialLikes={post.likes} />
 }
 
 export async function generateMetadata({

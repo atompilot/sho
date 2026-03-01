@@ -44,7 +44,7 @@ func publishTool() mcp.Tool {
 			mcp.Description("The main body of the post (markdown, HTML, or plain text)."),
 		),
 		mcp.WithString("format",
-			mcp.Description("Content format: markdown, html, txt (default: markdown)."),
+			mcp.Description("Content format: auto, markdown, html, txt, jsx (default: auto)."),
 		),
 		mcp.WithString("title",
 			mcp.Description("Optional title for the post."),
@@ -54,9 +54,6 @@ func publishTool() mcp.Tool {
 		),
 		mcp.WithString("password",
 			mcp.Description("Password (required when policy=password)."),
-		),
-		mcp.WithString("slug",
-			mcp.Description("Custom slug (auto-generated if omitted)."),
 		),
 	)
 }
@@ -127,7 +124,7 @@ func publishHandler(svc *service.PostService) mcpserver.ToolHandlerFunc {
 			return mcp.NewToolResultError("content is required"), nil
 		}
 
-		formatStr := req.GetString("format", "markdown")
+		formatStr := req.GetString("format", "auto")
 		var fmt_ model.Format
 		switch formatStr {
 		case "html":
@@ -136,8 +133,12 @@ func publishHandler(svc *service.PostService) mcpserver.ToolHandlerFunc {
 			fmt_ = model.FormatTXT
 		case "jsx":
 			fmt_ = model.FormatJSX
-		default:
+		case "markdown":
 			fmt_ = model.FormatMarkdown
+		case "auto", "":
+			fmt_ = service.DetectFormat(content)
+		default:
+			fmt_ = service.DetectFormat(content)
 		}
 
 		policyStr := req.GetString("policy", "open")
@@ -167,10 +168,6 @@ func publishHandler(svc *service.PostService) mcpserver.ToolHandlerFunc {
 		if password := req.GetString("password", ""); password != "" {
 			input.Password = &password
 		}
-		if slug := req.GetString("slug", ""); slug != "" {
-			input.Slug = &slug
-		}
-
 		resp, err := svc.CreatePost(ctx, input)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("create post: %v", err)), nil

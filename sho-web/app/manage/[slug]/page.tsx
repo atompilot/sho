@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useEffect, useState, use } from 'react'
 import { useSearchParams } from 'next/navigation'
 
 interface ManageContentProps {
@@ -19,9 +19,16 @@ function ManageContent({ slug }: ManageContentProps) {
     fetch(
       `${process.env.NEXT_PUBLIC_API_URL}/api/v1/posts/${slug}`
     )
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`Failed to load post: ${r.status}`)
+        return r.json()
+      })
       .then((d) => {
         setContent(d.content)
+        setLoading(false)
+      })
+      .catch((e) => {
+        setMsg(e.message || 'Failed to load post')
         setLoading(false)
       })
   }, [slug])
@@ -44,11 +51,20 @@ function ManageContent({ slug }: ManageContentProps) {
 
   async function handleDelete() {
     if (!confirm('Delete this Sho?')) return
-    await fetch(
-      `${process.env.NEXT_PUBLIC_API_URL}/api/v1/posts/${slug}?token=${token}`,
-      { method: 'DELETE' }
-    )
-    window.location.href = '/'
+    try {
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/v1/posts/${slug}?token=${encodeURIComponent(token)}`,
+        { method: 'DELETE' }
+      )
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: 'Delete failed' }))
+        setMsg(data.error || `Delete failed: ${res.status}`)
+        return
+      }
+      window.location.href = '/'
+    } catch {
+      setMsg('Network error during delete')
+    }
   }
 
   if (loading) return <div className="p-12 text-gray-500">Loading...</div>
@@ -85,11 +101,12 @@ function ManageContent({ slug }: ManageContentProps) {
 export default function ManagePage({
   params,
 }: {
-  params: { slug: string }
+  params: Promise<{ slug: string }>
 }) {
+  const { slug } = use(params)
   return (
     <Suspense fallback={<div className="p-12 text-gray-500">Loading...</div>}>
-      <ManageContent slug={params.slug} />
+      <ManageContent slug={slug} />
     </Suspense>
   )
 }
