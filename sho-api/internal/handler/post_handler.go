@@ -5,9 +5,11 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
@@ -19,8 +21,17 @@ import (
 	"github.com/google/uuid"
 )
 
+var maxContentBytes = 5 << 20 // 5 MB default, overridable via MAX_CONTENT_BYTES env
+
+func init() {
+	if v := os.Getenv("MAX_CONTENT_BYTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			maxContentBytes = n
+		}
+	}
+}
+
 const maxRequestBodyBytes = 10 << 20 // 10 MB
-const maxContentBytes = 1 << 20      // 1 MB
 
 type PostHandler struct {
 	svc       *service.PostService
@@ -57,6 +68,7 @@ func (h *PostHandler) Create(w http.ResponseWriter, r *http.Request) {
 		ViewPassword   *string          `json:"view_password"`
 		ViewQAQuestion *string          `json:"view_qa_question"`
 		ViewQAAnswer   *string          `json:"view_qa_answer"`
+		Unlisted       *bool            `json:"unlisted"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -67,7 +79,7 @@ func (h *PostHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(req.Content) > maxContentBytes {
-		writeError(w, http.StatusRequestEntityTooLarge, "content exceeds 1 MB limit")
+		writeError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("content exceeds %d MB limit", maxContentBytes>>20))
 		return
 	}
 	if req.Format == "" || req.Format == model.FormatAuto {
@@ -89,7 +101,7 @@ func (h *PostHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := h.svc.CreatePost(r.Context(), service.CreatePostInput{
+	input := service.CreatePostInput{
 		Title:          req.Title,
 		Content:        req.Content,
 		Format:         req.Format,
@@ -100,7 +112,12 @@ func (h *PostHandler) Create(w http.ResponseWriter, r *http.Request) {
 		ViewPassword:   req.ViewPassword,
 		ViewQAQuestion: req.ViewQAQuestion,
 		ViewQAAnswer:   req.ViewQAAnswer,
-	})
+	}
+	if req.Unlisted != nil && *req.Unlisted {
+		input.Unlisted = true
+	}
+
+	resp, err := h.svc.CreatePost(r.Context(), input)
 	if err != nil {
 		var dupErr service.ErrDuplicateContent
 		if errors.As(err, &dupErr) {
@@ -189,7 +206,7 @@ func (h *PostHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(req.Content) > maxContentBytes {
-		writeError(w, http.StatusRequestEntityTooLarge, "content exceeds 1 MB limit")
+		writeError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("content exceeds %d MB limit", maxContentBytes>>20))
 		return
 	}
 
@@ -198,7 +215,7 @@ func (h *PostHandler) Update(w http.ResponseWriter, r *http.Request) {
 		Content:    req.Content,
 		Credential: req.Credential,
 		EditedBy:   req.Credential,
-	})
+	}, h.llmClient)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "post not found")
 		return
@@ -211,6 +228,14 @@ func (h *PostHandler) Update(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnauthorized, err.Error())
 		return
 	}
+	var aiRejected service.ErrAIReviewRejected
+	if errors.As(err, &aiRejected) {
+		writeJSON(w, http.StatusForbidden, map[string]string{
+			"error":  "ai_review_rejected",
+			"reason": aiRejected.Reason,
+		})
+		return
+	}
 	if err != nil {
 		log.Printf("update post %s: %v", slug, err)
 		writeError(w, http.StatusInternalServerError, "failed to update post")
@@ -221,19 +246,29 @@ func (h *PostHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 func (h *PostHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	slug := chi.URLParam(r, "slug")
-	editToken := r.URL.Query().Get("token")
-	if editToken == "" {
-		writeError(w, http.StatusUnauthorized, "edit_token required")
-		return
+
+	// Support both legacy ?token= query param and credential in body (same as update).
+	credential := r.URL.Query().Get("token")
+	if credential == "" {
+		var body struct {
+			Credential string `json:"credential"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
+			credential = body.Credential
+		}
 	}
 
-	err := h.svc.DeletePost(r.Context(), slug, editToken)
+	err := h.svc.DeletePost(r.Context(), slug, credential)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "post not found")
 		return
 	}
+	if errors.Is(err, policy.ErrLocked) {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
 	if errors.Is(err, policy.ErrInvalidCredential) {
-		writeError(w, http.StatusUnauthorized, "invalid edit token")
+		writeError(w, http.StatusUnauthorized, "invalid credential")
 		return
 	}
 	if err != nil {

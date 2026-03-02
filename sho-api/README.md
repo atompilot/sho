@@ -1,8 +1,8 @@
 # sho-api
 
-Sho 的 Go 后端服务。/ Go backend service for Sho.
+Go backend service for Sho.
 
-## Setup / 安装
+## Setup
 
 ```bash
 go mod tidy
@@ -10,9 +10,7 @@ go mod tidy
 
 Requires PostgreSQL 16+ and a `DATABASE_URL` environment variable.
 
-需要 PostgreSQL 16+ 和 `DATABASE_URL` 环境变量。
-
-## Run / 运行
+## Run
 
 ```bash
 # Copy and configure environment
@@ -24,19 +22,19 @@ go run ./cmd/server
 
 The server listens on `:15080` by default (configurable via `API_PORT`).
 
-## Test / 测试
+## Test
 
 ```bash
 go test ./... -v -count=1
 ```
 
-## Build / 构建
+## Build
 
 ```bash
 go build -o server ./cmd/server
 ```
 
-## Environment / 环境变量
+## Environment
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -48,24 +46,24 @@ go build -o server ./cmd/server
 | `OPENAI_BASE_URL` | — | OpenAI-compatible API base URL |
 | `OPENAI_MODEL` | — | Model name (required when API key is set) |
 
-## Structure / 结构
+## Structure
 
 ```
 sho-api/
-├── cmd/server/main.go       Entry point, router setup / 入口与路由
+├── cmd/server/main.go       Entry point, router setup
 ├── internal/
-│   ├── handler/              HTTP handlers / HTTP 处理器
-│   ├── service/              Business logic / 业务逻辑
+│   ├── handler/              HTTP handlers
+│   ├── service/              Business logic
 │   │   ├── post_service.go   CRUD, policies, verification
-│   │   ├── format.go         Auto-format detection (11 formats)
+│   │   ├── format.go         Auto-format detection (10 formats)
 │   │   ├── title.go          Title extraction from content
 │   │   └── ai_title.go       Background AI title worker
-│   ├── store/                PostgreSQL data access / 数据访问层
-│   ├── model/                Data models / 数据模型
-│   ├── policy/               Edit policy enforcement / 编辑策略
-│   ├── mcp/                  MCP server (5 tools) / MCP 服务
-│   └── llm/                  LLM client (OpenAI-compatible) / LLM 客户端
-└── migrations/               SQL migrations (auto-run on startup) / 数据库迁移
+│   ├── store/                PostgreSQL data access
+│   ├── model/                Data models
+│   ├── policy/               Edit policy enforcement
+│   ├── mcp/                  MCP server (8 tools)
+│   └── llm/                  LLM client (OpenAI-compatible)
+└── migrations/               SQL migrations (auto-run on startup)
 ```
 
 ## Endpoints
@@ -90,14 +88,15 @@ sho-api/
 
 ### MCP (`/mcp/sse`)
 
-SSE transport with 5 tools: `sho_publish`, `sho_get`, `sho_update`, `sho_delete`, `sho_list`.
+SSE transport with 8 tools: `sho_publish`, `sho_get`, `sho_update`, `sho_delete`, `sho_list`, `sho_like`, `sho_comment`, `sho_list_comments`.
 
 ## Database
 
 Migrations run automatically on startup. Schema includes:
-- `posts` — content, format, policies, social counters
-- `post_versions` — content history
-- `comments` — threaded comments (max 2 levels)
-- `like_fingerprints` / `view_fingerprints` — deduplication
+- `sho_posts` — content, format, policies, social counters
+- `sho_post_versions` — content history
+- `sho_comments` — threaded comments (max 2 levels)
+- `sho_post_like_fingerprints` / `sho_post_view_fingerprints` — deduplication
+- `sho_schema_migrations` — migration tracking
 
 See the [root README](../README.md) for full project documentation.

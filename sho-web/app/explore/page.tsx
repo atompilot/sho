@@ -97,7 +97,7 @@ export default function ExplorePage() {
           <h1 className="text-xl font-bold">Explore</h1>
         </div>
         <Link
-          href="/new"
+          href="/"
           className="bg-black text-white text-sm rounded px-4 py-2 hover:bg-gray-800 transition-colors"
         >
           New Sho

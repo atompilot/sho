@@ -25,6 +25,8 @@ export default function EditPostPage() {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -41,28 +43,56 @@ export default function EditPostPage() {
       .finally(() => setLoading(false))
   }, [slug])
 
+  function getCredential() {
+    if (post?.policy === 'password') return password
+    if (post?.policy === 'owner-only') return searchParams.get('token') || ''
+    return ''
+  }
+
+  async function handleDelete() {
+    if (!post) return
+    setDeleting(true)
+    setError('')
+
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/posts/${slug}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential: getCredential() }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: 'Failed to delete' }))
+        setError(data.error || `Error ${res.status}`)
+        return
+      }
+      router.push('/')
+    } catch {
+      setError('Network error')
+    } finally {
+      setDeleting(false)
+      setConfirmDelete(false)
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!post) return
     setSaving(true)
     setError('')
 
-    let credential = ''
-    if (post.policy === 'password') {
-      credential = password
-    } else if (post.policy === 'owner-only') {
-      credential = searchParams.get('token') || ''
-    }
-
     try {
       const res = await fetch(`${API_BASE}/api/v1/posts/${slug}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content, credential }),
+        body: JSON.stringify({ content, credential: getCredential() }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({ error: 'Failed to save' }))
-        setError(data.error || `Error ${res.status}`)
+        if (data.error === 'ai_review_rejected') {
+          setError(`AI Review rejected: ${data.reason}`)
+        } else {
+          setError(data.error || `Error ${res.status}`)
+        }
         return
       }
       router.push(`/${slug}`)
@@ -173,11 +203,38 @@ export default function EditPostPage() {
             <p className="text-sm text-red-500 bg-red-50 rounded-lg px-4 py-2.5">{error}</p>
           )}
 
-          {/* Submit + History */}
+          {/* Submit + History + Delete */}
           <div className="flex items-center justify-between">
-            <span className="text-xs text-gray-400">
-              {content.trim() ? 'Cmd+Enter to save' : ''}
-            </span>
+            <div className="flex items-center gap-2">
+              {!confirmDelete ? (
+                <button
+                  type="button"
+                  onClick={() => setConfirmDelete(true)}
+                  className="text-sm text-gray-400 hover:text-red-500 transition-colors"
+                >
+                  Delete
+                </button>
+              ) : (
+                <div className="flex items-center gap-2 animate-fade-up">
+                  <span className="text-xs text-red-500">Are you sure?</span>
+                  <button
+                    type="button"
+                    onClick={handleDelete}
+                    disabled={deleting}
+                    className="text-sm text-red-600 font-medium hover:text-red-700 transition-colors disabled:opacity-50"
+                  >
+                    {deleting ? 'Deleting...' : 'Yes, delete'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDelete(false)}
+                    className="text-sm text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </div>
             <div className="flex items-center gap-2">
               {post.version_count > 0 && (
                 <Link

@@ -12,14 +12,17 @@ import (
 )
 
 func RunMigrations(ctx context.Context, conn *pgx.Conn) error {
+	// Rename legacy schema_migrations → sho_schema_migrations (idempotent).
+	conn.Exec(ctx, `ALTER TABLE IF EXISTS schema_migrations RENAME TO sho_schema_migrations`) //nolint:errcheck
+
 	// Ensure tracking table exists
 	if _, err := conn.Exec(ctx, `
-		CREATE TABLE IF NOT EXISTS schema_migrations (
+		CREATE TABLE IF NOT EXISTS sho_schema_migrations (
 			name TEXT PRIMARY KEY,
 			applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		)
 	`); err != nil {
-		return fmt.Errorf("create schema_migrations table: %w", err)
+		return fmt.Errorf("create sho_schema_migrations table: %w", err)
 	}
 
 	migrationsDir := findMigrationsDir()
@@ -41,7 +44,7 @@ func RunMigrations(ctx context.Context, conn *pgx.Conn) error {
 		// Skip already-applied migrations
 		var exists bool
 		if err := conn.QueryRow(ctx,
-			`SELECT EXISTS(SELECT 1 FROM schema_migrations WHERE name = $1)`,
+			`SELECT EXISTS(SELECT 1 FROM sho_schema_migrations WHERE name = $1)`,
 			name,
 		).Scan(&exists); err != nil {
 			return fmt.Errorf("check migration %s: %w", name, err)
@@ -60,7 +63,7 @@ func RunMigrations(ctx context.Context, conn *pgx.Conn) error {
 			return fmt.Errorf("run migration %s: %w", name, err)
 		}
 		if _, err := conn.Exec(ctx,
-			`INSERT INTO schema_migrations (name) VALUES ($1)`, name,
+			`INSERT INTO sho_schema_migrations (name) VALUES ($1)`, name,
 		); err != nil {
 			return fmt.Errorf("record migration %s: %w", name, err)
 		}

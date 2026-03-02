@@ -106,7 +106,7 @@ func main() {
 	if baseURL == "" {
 		baseURL = fmt.Sprintf("http://localhost:%s", port)
 	}
-	mcpSrv := shoMCP.NewMCPServer(postSvc)
+	mcpSrv := shoMCP.NewMCPServer(postSvc, llmChatter)
 	sseServer := shoMCP.SSEServer(mcpSrv, baseURL)
 	r.Get("/mcp/sse", sseServer.SSEHandler().ServeHTTP)
 	r.Post("/mcp/message", sseServer.MessageHandler().ServeHTTP)

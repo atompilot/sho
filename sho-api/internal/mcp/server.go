@@ -13,12 +13,12 @@ import (
 )
 
 // NewMCPServer creates an MCPServer with all Sho tools registered.
-func NewMCPServer(postSvc *service.PostService) *mcpserver.MCPServer {
+func NewMCPServer(postSvc *service.PostService, llmClient service.LLMChatter) *mcpserver.MCPServer {
 	s := mcpserver.NewMCPServer("sho", "1.0.0")
 
 	s.AddTool(publishTool(), publishHandler(postSvc))
 	s.AddTool(getTool(), getHandler(postSvc))
-	s.AddTool(updateTool(), updateHandler(postSvc))
+	s.AddTool(updateTool(), updateHandler(postSvc, llmClient))
 	s.AddTool(deleteTool(), deleteHandler(postSvc))
 	s.AddTool(listTool(), listHandler(postSvc))
 	s.AddTool(likeTool(), likeHandler(postSvc))
@@ -70,6 +70,9 @@ func publishTool() mcp.Tool {
 		),
 		mcp.WithString("view_qa_answer",
 			mcp.Description("Answer for human-qa view policy (exact match)."),
+		),
+		mcp.WithBoolean("unlisted",
+			mcp.Description("If true, post won't appear in lists/search/explore. Only accessible via direct link (default: false)."),
 		),
 	)
 }
@@ -207,6 +210,9 @@ func publishHandler(svc *service.PostService) mcpserver.ToolHandlerFunc {
 		if vqa := req.GetString("view_qa_answer", ""); vqa != "" {
 			input.ViewQAAnswer = &vqa
 		}
+		if req.GetBool("unlisted", false) {
+			input.Unlisted = true
+		}
 		resp, err := svc.CreatePost(ctx, input)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("create post: %v", err)), nil
@@ -240,7 +246,7 @@ func getHandler(svc *service.PostService) mcpserver.ToolHandlerFunc {
 	}
 }
 
-func updateHandler(svc *service.PostService) mcpserver.ToolHandlerFunc {
+func updateHandler(svc *service.PostService, llmClient service.LLMChatter) mcpserver.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		slug, err := req.RequireString("slug")
 		if err != nil {
@@ -264,7 +270,7 @@ func updateHandler(svc *service.PostService) mcpserver.ToolHandlerFunc {
 			EditedBy:   editedBy,
 		}
 
-		if err := svc.UpdatePost(ctx, input); err != nil {
+		if err := svc.UpdatePost(ctx, input, llmClient); err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("update post: %v", err)), nil
 		}
 

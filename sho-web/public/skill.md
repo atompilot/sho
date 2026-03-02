@@ -59,7 +59,7 @@ Publish new content. Returns slug, edit_token, and manage_url.
 
 | Parameter | Required | Description |
 |-----------|----------|-------------|
-| `content` | Yes | The content body (any supported format, max 1 MB) |
+| `content` | Yes | The content body (any supported format, max 5 MB) |
 | `format` | No | `auto`, `markdown`, `html`, `jsx`, `svg`, `csv`, `json`, `lottie`, `p5`, `reveal`, `glsl` (default: `auto`) |
 | `title` | No | Optional title. Auto-extracted from content if omitted |
 | `policy` | No | Edit policy: `open`, `locked`, `password`, `owner-only`, `ai-review` (default: `open`) |
@@ -68,6 +68,7 @@ Publish new content. Returns slug, edit_token, and manage_url.
 | `view_password` | No | For `view_policy=password`. Auto-generated 6-digit code if empty |
 | `view_qa_question` | No | Question for `human-qa` or `ai-qa` view policy |
 | `view_qa_answer` | No | Exact-match answer for `human-qa` view policy |
+| `unlisted` | No | If `true`, post won't appear in lists/search/explore. Only accessible via direct link (default: `false`) |
 
 Example — publish an SVG with password-protected editing:
 ```
@@ -96,7 +97,7 @@ Update post content. Requires credential (edit_token or password).
 | Parameter | Required | Description |
 |-----------|----------|-------------|
 | `slug` | Yes | Slug of the post to update |
-| `content` | Yes | New content (max 1 MB) |
+| `content` | Yes | New content (max 5 MB) |
 | `credential` | Yes | `edit_token` (for owner-only) or password (for password-protected) |
 | `edited_by` | No | Editor identifier (default: `mcp-client`) |
 
@@ -176,7 +177,8 @@ Body:
   "view_password": null,
   "view_qa_question": null,
   "view_qa_answer": null,
-  "ai_review_prompt": null
+  "ai_review_prompt": null,
+  "unlisted": false
 }
 ```
 
@@ -226,7 +228,7 @@ Response `200`: `{"status": "updated"}`
 
 | Status | Meaning |
 |--------|---------|
-| 413 | Content exceeds 1 MB limit |
+| 413 | Content exceeds 5 MB limit |
 | 403 | Post is locked (no editing allowed) |
 | 401 | Invalid credential |
 | 404 | Post not found |

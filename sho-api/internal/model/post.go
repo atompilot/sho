@@ -64,6 +64,7 @@ type Post struct {
 	ViewPassword   *string    `json:"-"`
 	ViewQAQuestion *string    `json:"view_qa_question,omitempty"`
 	ViewQAAnswer   *string    `json:"-"`
+	Unlisted       bool       `json:"unlisted"`
 	EditToken      string     `json:"-"`
 	ContentLength  int        `json:"content_length"`
 	VersionCount   int        `json:"version_count"`

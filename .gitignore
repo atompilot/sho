@@ -10,6 +10,7 @@ sho-api/server
 # Node / Next.js
 sho-web/node_modules/
 sho-web/.next/
+sho-api/.next/
 sho-web/.env.local
 
 # Project

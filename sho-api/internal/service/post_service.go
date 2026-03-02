@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 
@@ -14,6 +15,16 @@ import (
 	"github.com/atompilot/sho-api/internal/store"
 	"github.com/google/uuid"
 )
+
+var defaultAIReviewPrompt = func() string {
+	if v := os.Getenv("DEFAULT_AI_REVIEW_PROMPT"); v != "" {
+		return v
+	}
+	return "You are an edit reviewer for a published post. Evaluate whether the proposed edit is constructive and appropriate. " +
+		"Accept edits that fix typos, improve clarity, add useful information, or make reasonable updates. " +
+		"Reject edits that are spam, vandalism, off-topic, or destructive. " +
+		"Reply with exactly APPROVE or REJECT followed by a brief reason."
+}()
 
 // ErrEmptyContent is returned when the submitted content is blank after trimming.
 var ErrEmptyContent = errors.New("content is required")
@@ -46,6 +57,7 @@ type CreatePostInput struct {
 	ViewPassword   *string
 	ViewQAQuestion *string
 	ViewQAAnswer   *string
+	Unlisted       bool
 }
 
 type UpdatePostInput struct {
@@ -143,6 +155,7 @@ func (s *PostService) CreatePost(ctx context.Context, input CreatePostInput) (*m
 		ViewPolicy:     input.ViewPolicy,
 		ViewQAQuestion: input.ViewQAQuestion,
 		ViewQAAnswer:   input.ViewQAAnswer,
+		Unlisted:       input.Unlisted,
 	}
 
 	if input.Policy == model.PolicyPassword && input.Password != nil {
@@ -183,13 +196,26 @@ func (s *PostService) RecordView(ctx context.Context, slug, fpHash string) (view
 	return s.store.TryView(ctx, slug, fpHash)
 }
 
-func (s *PostService) UpdatePost(ctx context.Context, input UpdatePostInput) error {
+// ErrAIReviewRejected is returned when the AI reviewer rejects an edit.
+type ErrAIReviewRejected struct {
+	Reason string
+}
+
+func (e ErrAIReviewRejected) Error() string {
+	return fmt.Sprintf("edit rejected by AI reviewer: %s", e.Reason)
+}
+
+func (s *PostService) UpdatePost(ctx context.Context, input UpdatePostInput, llmClient LLMChatter) error {
 	post, err := s.store.GetBySlug(ctx, input.Slug)
 	if err != nil {
 		return fmt.Errorf("get post: %w", err)
 	}
 
-	if post.Policy != model.PolicyAIReview {
+	if post.Policy == model.PolicyAIReview {
+		if err := s.verifyAIReview(ctx, llmClient, post, input.Content); err != nil {
+			return err
+		}
+	} else {
 		stored := post.Password
 		if post.Policy == model.PolicyOwnerOnly {
 			stored = &post.EditToken
@@ -212,14 +238,78 @@ func (s *PostService) UpdatePost(ctx context.Context, input UpdatePostInput) err
 	return s.store.Update(ctx, input.Slug, input.Content, title)
 }
 
-func (s *PostService) DeletePost(ctx context.Context, slug string, editToken string) error {
+// verifyAIReview calls the LLM to evaluate whether the proposed edit should be accepted.
+func (s *PostService) verifyAIReview(ctx context.Context, client LLMChatter, post *model.Post, newContent string) error {
+	if client == nil {
+		return errors.New("AI review is temporarily unavailable")
+	}
+
+	reviewPrompt := defaultAIReviewPrompt
+	if post.AIReviewPrompt != nil && strings.TrimSpace(*post.AIReviewPrompt) != "" {
+		reviewPrompt = *post.AIReviewPrompt
+	}
+
+	prompt := fmt.Sprintf(
+		"%s\n\n--- ORIGINAL CONTENT ---\n%s\n\n--- PROPOSED EDIT ---\n%s",
+		reviewPrompt, truncateForReview(post.Content, 2000), truncateForReview(newContent, 2000),
+	)
+
+	resp, err := client.Chat(ctx, []llm.Message{
+		{Role: "user", Content: prompt},
+	})
+	if err != nil {
+		return fmt.Errorf("AI review failed: %w", err)
+	}
+
+	verdict := strings.TrimSpace(resp)
+	upper := strings.ToUpper(verdict)
+
+	if strings.HasPrefix(upper, "APPROVE") {
+		return nil
+	}
+
+	reason := verdict
+	if strings.HasPrefix(upper, "REJECT") {
+		reason = strings.TrimSpace(verdict[len("REJECT"):])
+		reason = strings.TrimLeft(reason, ":.- ")
+		if reason == "" {
+			reason = "edit was not approved"
+		}
+	}
+	return ErrAIReviewRejected{Reason: reason}
+}
+
+// truncateForReview limits content sent to the LLM for review.
+func truncateForReview(content string, maxRunes int) string {
+	runes := []rune(content)
+	if len(runes) <= maxRunes {
+		return content
+	}
+	return string(runes[:maxRunes]) + "\n... (truncated)"
+}
+
+func (s *PostService) DeletePost(ctx context.Context, slug string, credential string) error {
 	post, err := s.store.GetBySlug(ctx, slug)
 	if err != nil {
 		return fmt.Errorf("get post: %w", err)
 	}
-	if !policy.ConstantTimeEqual(post.EditToken, editToken) {
-		return policy.ErrInvalidCredential
+
+	// Accept edit_token directly (MCP / API backwards compat).
+	// Otherwise fall through to the same policy checker as update.
+	if !policy.ConstantTimeEqual(post.EditToken, credential) {
+		// For locked posts, only the edit_token grants delete access.
+		if post.Policy == model.PolicyLocked {
+			return policy.ErrInvalidCredential
+		}
+		stored := post.Password
+		if post.Policy == model.PolicyOwnerOnly {
+			stored = &post.EditToken
+		}
+		if err := policy.CheckUpdate(post.Policy, stored, credential); err != nil {
+			return err
+		}
 	}
+
 	return s.store.SoftDelete(ctx, slug)
 }
 
