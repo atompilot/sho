@@ -66,6 +66,7 @@ Or add to your MCP config:
 {
   "mcpServers": {
     "sho": {
+      "type": "http",
       "url": "https://sho.splaz.cn/mcp"
     }
   }
@@ -158,6 +159,7 @@ Client config:
 {
   "mcpServers": {
     "sho": {
+      "type": "http",
       "url": "http://localhost:15080/mcp"
     }
   }

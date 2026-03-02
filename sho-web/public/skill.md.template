@@ -17,6 +17,7 @@ Or add MCP config manually:
 {
   "mcpServers": {
     "sho": {
+      "type": "http",
       "url": "{{BASE_URL}}/mcp"
     }
   }
@@ -553,6 +554,7 @@ Add Sho to your MCP client config:
 {
   "mcpServers": {
     "sho": {
+      "type": "http",
       "url": "{{BASE_URL}}/mcp"
     }
   }

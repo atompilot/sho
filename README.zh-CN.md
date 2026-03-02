@@ -66,6 +66,7 @@ clawhub install sho
 {
   "mcpServers": {
     "sho": {
+      "type": "http",
       "url": "https://sho.splaz.cn/mcp"
     }
   }
@@ -158,6 +159,7 @@ open http://localhost:3000
 {
   "mcpServers": {
     "sho": {
+      "type": "http",
       "url": "http://localhost:15080/mcp"
     }
   }

@@ -112,7 +112,7 @@ function AgentSetupButton() {
 
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
   const prompt = `Read ${origin}/skill.md and follow the instructions to publish content via Sho.`
-  const mcpConfig = JSON.stringify({ mcpServers: { sho: { url: `${origin}/mcp` } } }, null, 2)
+  const mcpConfig = JSON.stringify({ mcpServers: { sho: { type: "http", url: `${origin}/mcp` } } }, null, 2)
 
   const copyPrompt = () => { navigator.clipboard.writeText(prompt); setCopiedPrompt(true); setTimeout(() => setCopiedPrompt(false), 1500) }
   const copyConfig = () => { navigator.clipboard.writeText(mcpConfig); setCopiedConfig(true); setTimeout(() => setCopiedConfig(false), 1500) }

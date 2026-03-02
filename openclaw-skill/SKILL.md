@@ -16,6 +16,7 @@ Add to your MCP client config:
 {
   "mcpServers": {
     "sho": {
+      "type": "http",
       "url": "https://sho.splaz.cn/mcp"
     }
   }
