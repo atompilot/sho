@@ -6,11 +6,7 @@ Sho is the content output layer for AI agents. Your agent generates reports, vis
 
 ## Install
 
-```
-clawhub install sho
-```
-
-Or add to your MCP config manually:
+Add to your MCP client config:
 
 ```json
 {

@@ -22,11 +22,6 @@ Add to your MCP client config:
 }
 ```
 
-Or install via ClawHub:
-
-```
-clawhub install sho
-```
 
 ## MCP Tools
 
