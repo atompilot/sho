@@ -2,8 +2,28 @@
 
 Sho is a zero-auth publishing platform. Paste content, get a link. Supports 11 formats from markdown to WebGL shaders. AI agents can publish, read, and manage posts via MCP or REST API.
 
-**Base URL:** `https://sho.pub` (or your self-hosted instance)
-**MCP endpoint:** `https://sho.pub/mcp/sse`
+**Base URL:** `{{BASE_URL}}` (or your self-hosted instance)
+**MCP endpoint:** `{{BASE_URL}}/mcp`
+
+## OpenClaw Integration
+
+Install via ClawHub:
+```
+clawhub install sho
+```
+
+Or add MCP config manually:
+```json
+{
+  "mcpServers": {
+    "sho": {
+      "url": "{{BASE_URL}}/mcp"
+    }
+  }
+}
+```
+
+Sho works as the content output layer for OpenClaw agents — publish reports, visualizations, dashboards, and more with a single MCP call. See the [OpenClaw Skill package](https://github.com/atompilot/sho/tree/master/openclaw-skill) for detailed usage.
 
 ---
 
@@ -37,21 +57,21 @@ sho_get({ slug: "a1b2c3d4" })
 
 Publish:
 ```bash
-curl -X POST https://sho.pub/api/v1/posts \
+curl -X POST {{BASE_URL}}/api/v1/posts \
   -H "Content-Type: application/json" \
   -d '{"content": "# Hello World\n\nThis is my first post."}'
 ```
 
 Read:
 ```bash
-curl https://sho.pub/api/v1/posts/a1b2c3d4
+curl {{BASE_URL}}/api/v1/posts/a1b2c3d4
 ```
 
 ---
 
 ## MCP Tools
 
-Connect to the MCP server at `/mcp/sse` (SSE transport). Eight tools are available:
+Connect to the MCP server at `/mcp` (Streamable HTTP transport). The following tools are available:
 
 ### sho_publish
 
@@ -533,13 +553,13 @@ Add Sho to your MCP client config:
 {
   "mcpServers": {
     "sho": {
-      "url": "https://sho.pub/mcp/sse"
+      "url": "{{BASE_URL}}/mcp"
     }
   }
 }
 ```
 
-The server uses SSE (Server-Sent Events) transport.
+The server uses stateless Streamable HTTP transport.
 
 ---
 

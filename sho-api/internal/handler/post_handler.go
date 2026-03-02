@@ -17,6 +17,7 @@ import (
 	"github.com/atompilot/sho-api/internal/policy"
 	"github.com/atompilot/sho-api/internal/service"
 	"github.com/atompilot/sho-api/internal/store"
+	"github.com/atompilot/sho-api/internal/webhook"
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
@@ -34,12 +35,14 @@ func init() {
 const maxRequestBodyBytes = 10 << 20 // 10 MB
 
 type PostHandler struct {
-	svc       *service.PostService
-	llmClient service.LLMChatter
+	svc          *service.PostService
+	llmClient    service.LLMChatter
+	webhookDisp  *webhook.Dispatcher
+	webhookStore *store.WebhookStore
 }
 
-func NewPostHandler(svc *service.PostService, llmClient service.LLMChatter) *PostHandler {
-	return &PostHandler{svc: svc, llmClient: llmClient}
+func NewPostHandler(svc *service.PostService, llmClient service.LLMChatter, wd *webhook.Dispatcher, ws *store.WebhookStore) *PostHandler {
+	return &PostHandler{svc: svc, llmClient: llmClient, webhookDisp: wd, webhookStore: ws}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -67,8 +70,12 @@ func (h *PostHandler) Create(w http.ResponseWriter, r *http.Request) {
 		ViewPolicy     model.ViewPolicy `json:"view_policy"`
 		ViewPassword   *string          `json:"view_password"`
 		ViewQAQuestion *string          `json:"view_qa_question"`
+		ViewQAPrompt   *string          `json:"view_qa_prompt"`
 		ViewQAAnswer   *string          `json:"view_qa_answer"`
 		Unlisted       *bool            `json:"unlisted"`
+		AgentID        *string          `json:"agent_id"`
+		AgentName      *string          `json:"agent_name"`
+		WebhookURL     *string          `json:"webhook_url"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -111,7 +118,11 @@ func (h *PostHandler) Create(w http.ResponseWriter, r *http.Request) {
 		ViewPolicy:     req.ViewPolicy,
 		ViewPassword:   req.ViewPassword,
 		ViewQAQuestion: req.ViewQAQuestion,
+		ViewQAPrompt:   req.ViewQAPrompt,
 		ViewQAAnswer:   req.ViewQAAnswer,
+		AgentID:        req.AgentID,
+		AgentName:      req.AgentName,
+		WebhookURL:     req.WebhookURL,
 	}
 	if req.Unlisted != nil && *req.Unlisted {
 		input.Unlisted = true
@@ -141,6 +152,21 @@ func (h *PostHandler) Create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "failed to create post")
 		return
 	}
+
+	// Register webhook if provided
+	if req.WebhookURL != nil && *req.WebhookURL != "" && h.webhookStore != nil {
+		wh := &store.Webhook{
+			ID:          uuid.New(),
+			PostSlug:    resp.Slug,
+			EndpointURL: *req.WebhookURL,
+			Events:      []string{"post.updated", "post.liked", "comment.created"},
+			IsActive:    true,
+		}
+		if err := h.webhookStore.Create(r.Context(), wh); err != nil {
+			log.Printf("register webhook for %s: %v", resp.Slug, err)
+		}
+	}
+
 	writeJSON(w, http.StatusCreated, resp)
 }
 
@@ -184,6 +210,12 @@ func (h *PostHandler) Get(w http.ResponseWriter, r *http.Request) {
 		}
 		if post.ViewQAQuestion != nil {
 			resp["view_qa_question"] = *post.ViewQAQuestion
+		}
+		if post.AgentID != nil {
+			resp["agent_id"] = *post.AgentID
+		}
+		if post.AgentName != nil {
+			resp["agent_name"] = *post.AgentName
 		}
 		writeJSON(w, http.StatusOK, resp)
 		return
@@ -374,6 +406,29 @@ func (h *PostHandler) Like(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"likes": newLikes, "already_liked": alreadyLiked})
+
+	if !alreadyLiked && h.webhookDisp != nil {
+		h.webhookDisp.Emit(webhook.Event{
+			Type: "post.liked",
+			Slug: slug,
+			Data: map[string]any{"likes": newLikes},
+		})
+	}
+}
+
+func (h *PostHandler) Share(w http.ResponseWriter, r *http.Request) {
+	slug := chi.URLParam(r, "slug")
+	newShares, alreadyShared, err := h.svc.SharePost(r.Context(), slug, likeFingerprint(r))
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "post not found")
+		return
+	}
+	if err != nil {
+		log.Printf("share post %s: %v", slug, err)
+		writeError(w, http.StatusInternalServerError, "failed to share post")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"shares": newShares, "already_shared": alreadyShared})
 }
 
 func (h *PostHandler) ListVersions(w http.ResponseWriter, r *http.Request) {
@@ -455,6 +510,35 @@ func (h *PostHandler) CreateComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, comment)
+
+	if h.webhookDisp != nil {
+		h.webhookDisp.Emit(webhook.Event{
+			Type: "comment.created",
+			Slug: slug,
+			Data: comment,
+		})
+	}
+}
+
+func (h *PostHandler) ListByAgent(w http.ResponseWriter, r *http.Request) {
+	agentID := chi.URLParam(r, "agent_id")
+	if agentID == "" {
+		writeError(w, http.StatusBadRequest, "agent_id is required")
+		return
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	offset, _ := strconv.Atoi(r.URL.Query().Get("offset"))
+
+	posts, err := h.svc.ListByAgent(r.Context(), agentID, limit, offset)
+	if err != nil {
+		log.Printf("list by agent %s: %v", agentID, err)
+		writeError(w, http.StatusInternalServerError, "failed to list posts by agent")
+		return
+	}
+	if posts == nil {
+		posts = []*model.Post{}
+	}
+	writeJSON(w, http.StatusOK, posts)
 }
 
 func (h *PostHandler) VerifyView(w http.ResponseWriter, r *http.Request) {

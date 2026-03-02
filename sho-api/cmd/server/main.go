@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -15,6 +14,7 @@ import (
 	shoMCP "github.com/atompilot/sho-api/internal/mcp"
 	"github.com/atompilot/sho-api/internal/service"
 	"github.com/atompilot/sho-api/internal/store"
+	"github.com/atompilot/sho-api/internal/webhook"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 )
@@ -45,7 +45,10 @@ func main() {
 	conn.Release()
 
 	postStore := store.NewPostStore(pool)
+	webhookStore := store.NewWebhookStore(pool)
+	channelStore := store.NewChannelStore(pool)
 	postSvc := service.NewPostService(postStore)
+	postSvc.SetChannelStore(channelStore)
 
 	var llmChatter service.LLMChatter
 
@@ -69,7 +72,10 @@ func main() {
 		go worker.Run(ctx)
 	}
 
-	postHandler := handler.NewPostHandler(postSvc, llmChatter)
+	webhookDisp := webhook.NewDispatcher(webhookStore)
+	go webhookDisp.Run(ctx)
+
+	postHandler := handler.NewPostHandler(postSvc, llmChatter, webhookDisp, webhookStore)
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
@@ -86,10 +92,19 @@ func main() {
 		r.Get("/posts", postHandler.List)
 		r.Post("/posts/{slug}/view", postHandler.RecordView)
 		r.Post("/posts/{slug}/like", postHandler.Like)
+		r.Post("/posts/{slug}/share", postHandler.Share)
 		r.Get("/posts/{slug}/versions", postHandler.ListVersions)
 		r.Get("/posts/{slug}/comments", postHandler.ListComments)
 		r.Post("/posts/{slug}/comments", postHandler.CreateComment)
 		r.Post("/posts/{slug}/verify-view", postHandler.VerifyView)
+		r.Get("/posts/by-agent/{agent_id}", postHandler.ListByAgent)
+
+		// Channels
+		channelHandler := handler.NewChannelHandler(channelStore)
+		r.Post("/channels", channelHandler.Create)
+		r.Get("/channels/{name}", channelHandler.Get)
+		r.Get("/channels/{name}/posts", channelHandler.ListPosts)
+		r.Get("/channels/{name}/feed.json", channelHandler.Feed)
 
 		if chatHandler != nil {
 			r.Post("/chat", chatHandler.Chat)
@@ -101,15 +116,10 @@ func main() {
 		port = "15080"
 	}
 
-	// Mount MCP server at /mcp (HTTP SSE transport)
-	baseURL := os.Getenv("API_BASE_URL")
-	if baseURL == "" {
-		baseURL = fmt.Sprintf("http://localhost:%s", port)
-	}
-	mcpSrv := shoMCP.NewMCPServer(postSvc, llmChatter)
-	sseServer := shoMCP.SSEServer(mcpSrv, baseURL)
-	r.Get("/mcp/sse", sseServer.SSEHandler().ServeHTTP)
-	r.Post("/mcp/message", sseServer.MessageHandler().ServeHTTP)
+	// Mount MCP server at /mcp (stateless StreamableHTTP transport)
+	mcpSrv := shoMCP.NewMCPServer(postSvc, llmChatter, webhookStore, channelStore)
+	mcpHTTP := shoMCP.HTTPServer(mcpSrv)
+	r.Handle("/mcp", mcpHTTP)
 
 	srv := &http.Server{Addr: ":" + port, Handler: r}
 

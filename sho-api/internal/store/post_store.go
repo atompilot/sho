@@ -26,10 +26,12 @@ func (s *PostStore) Create(ctx context.Context, p *model.Post) error {
 	p.ContentLength = len(p.Content) // byte length, sufficient for scoring
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO sho_posts (id, slug, title, content, content_length, format, policy, password, ai_review_prompt, edit_token,
-		                   view_policy, view_password, view_qa_question, view_qa_answer, unlisted)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		                   view_policy, view_password, view_qa_question, view_qa_prompt, view_qa_answer, unlisted,
+		                   agent_id, agent_name, channel_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 	`, p.ID, p.Slug, p.Title, p.Content, p.ContentLength, p.Format, p.Policy, p.Password, p.AIReviewPrompt, p.EditToken,
-		p.ViewPolicy, p.ViewPassword, p.ViewQAQuestion, p.ViewQAAnswer, p.Unlisted)
+		p.ViewPolicy, p.ViewPassword, p.ViewQAQuestion, p.ViewQAPrompt, p.ViewQAAnswer, p.Unlisted,
+		p.AgentID, p.AgentName, p.ChannelID)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -44,15 +46,17 @@ func (s *PostStore) GetBySlug(ctx context.Context, slug string) (*model.Post, er
 	p := &model.Post{}
 	err := s.pool.QueryRow(ctx, `
 		SELECT id, slug, title, ai_title, content, format, policy, password, ai_review_prompt, edit_token,
-		       view_policy, view_password, view_qa_question, view_qa_answer, unlisted,
-		       views, likes, last_viewed_at, created_at, updated_at,
+		       view_policy, view_password, view_qa_question, view_qa_prompt, view_qa_answer, unlisted,
+		       agent_id, agent_name,
+		       views, likes, shares, last_viewed_at, created_at, updated_at,
 		       (SELECT COUNT(*) FROM sho_post_versions WHERE post_id = sho_posts.id) AS version_count
 		FROM sho_posts WHERE slug = $1 AND deleted_at IS NULL
 	`, slug).Scan(
 		&p.ID, &p.Slug, &p.Title, &p.AITitle, &p.Content, &p.Format, &p.Policy,
 		&p.Password, &p.AIReviewPrompt, &p.EditToken,
-		&p.ViewPolicy, &p.ViewPassword, &p.ViewQAQuestion, &p.ViewQAAnswer, &p.Unlisted,
-		&p.Views, &p.Likes, &p.LastViewedAt, &p.CreatedAt, &p.UpdatedAt,
+		&p.ViewPolicy, &p.ViewPassword, &p.ViewQAQuestion, &p.ViewQAPrompt, &p.ViewQAAnswer, &p.Unlisted,
+		&p.AgentID, &p.AgentName,
+		&p.Views, &p.Likes, &p.Shares, &p.LastViewedAt, &p.CreatedAt, &p.UpdatedAt,
 		&p.VersionCount,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -163,7 +167,8 @@ func scanPosts(rows interface {
 	for rows.Next() {
 		p := &model.Post{}
 		if err := rows.Scan(&p.ID, &p.Slug, &p.Title, &p.AITitle, &p.Content, &p.Format,
-			&p.Policy, &p.ContentLength, &p.Views, &p.Likes, &p.LastViewedAt, &p.CreatedAt, &p.UpdatedAt); err != nil {
+			&p.Policy, &p.ContentLength, &p.Views, &p.Likes, &p.Shares, &p.LastViewedAt, &p.CreatedAt, &p.UpdatedAt,
+			&p.AgentID, &p.AgentName); err != nil {
 			return nil, fmt.Errorf("scan post: %w", err)
 		}
 		posts = append(posts, p)
@@ -175,7 +180,8 @@ func (s *PostStore) ListRecent(ctx context.Context, limit, offset int, format st
 	fClause, fArgs := formatFilter(format, 3)
 	args := append([]any{limit, offset}, fArgs...)
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, slug, title, ai_title, content, format, policy, content_length, views, likes, last_viewed_at, created_at, updated_at
+		`SELECT id, slug, title, ai_title, content, format, policy, content_length, views, likes, shares, last_viewed_at, created_at, updated_at,
+		        agent_id, agent_name
 		 FROM sho_posts WHERE deleted_at IS NULL AND unlisted = FALSE`+fClause+`
 		 ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
 		args...)
@@ -203,7 +209,8 @@ func (s *PostStore) ListRecommended(ctx context.Context, limit, offset int, form
 	fClause, fArgs := formatFilter(format, 3)
 	args := append([]any{fetchLimit, offset}, fArgs...)
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, slug, title, ai_title, content, format, policy, content_length, views, likes, last_viewed_at, created_at, updated_at
+		`SELECT id, slug, title, ai_title, content, format, policy, content_length, views, likes, shares, last_viewed_at, created_at, updated_at,
+		        agent_id, agent_name
 		 FROM sho_posts WHERE deleted_at IS NULL AND unlisted = FALSE`+fClause+`
 		 ORDER BY`+recommendScore+` DESC
 		 LIMIT $1 OFFSET $2`,
@@ -219,7 +226,8 @@ func (s *PostStore) Search(ctx context.Context, query string, limit, offset int,
 	fClause, fArgs := formatFilter(format, 4)
 	args := append([]any{pattern, limit, offset}, fArgs...)
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, slug, title, ai_title, content, format, policy, content_length, views, likes, last_viewed_at, created_at, updated_at
+		`SELECT id, slug, title, ai_title, content, format, policy, content_length, views, likes, shares, last_viewed_at, created_at, updated_at,
+		        agent_id, agent_name
 		 FROM sho_posts WHERE deleted_at IS NULL AND unlisted = FALSE AND (title ILIKE $1 OR ai_title ILIKE $1 OR content ILIKE $1)`+fClause+`
 		 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
 		args...)
@@ -262,19 +270,27 @@ func (s *PostStore) SaveVersion(ctx context.Context, postID uuid.UUID, content s
 	return nil
 }
 
-// FindByContent returns the slug of an existing (non-deleted) post with identical content,
-// or an empty string if none exists.
-func (s *PostStore) FindByContent(ctx context.Context, content string) (string, error) {
+// FindByTitleAndContent returns the slug of an existing (non-deleted) post with identical
+// title and content combination, or an empty string if none exists.
+func (s *PostStore) FindByTitleAndContent(ctx context.Context, title *string, content string) (string, error) {
 	var slug string
-	err := s.pool.QueryRow(ctx,
-		`SELECT slug FROM sho_posts WHERE content = $1 AND deleted_at IS NULL LIMIT 1`,
-		content,
-	).Scan(&slug)
+	var err error
+	if title == nil || *title == "" {
+		err = s.pool.QueryRow(ctx,
+			`SELECT slug FROM sho_posts WHERE (title IS NULL OR title = '') AND content = $1 AND deleted_at IS NULL LIMIT 1`,
+			content,
+		).Scan(&slug)
+	} else {
+		err = s.pool.QueryRow(ctx,
+			`SELECT slug FROM sho_posts WHERE title = $1 AND content = $2 AND deleted_at IS NULL LIMIT 1`,
+			*title, content,
+		).Scan(&slug)
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", nil
 	}
 	if err != nil {
-		return "", fmt.Errorf("find by content: %w", err)
+		return "", fmt.Errorf("find by title and content: %w", err)
 	}
 	return slug, nil
 }
@@ -328,6 +344,49 @@ func (s *PostStore) TryLike(ctx context.Context, slug, fpHash string) (likes int
 	return likes, false, tx.Commit(ctx)
 }
 
+func (s *PostStore) TryShare(ctx context.Context, slug, fpHash string) (shares int, alreadyShared bool, err error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return 0, false, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck
+
+	var postID uuid.UUID
+	err = tx.QueryRow(ctx,
+		`SELECT id, shares FROM sho_posts WHERE slug = $1 AND deleted_at IS NULL`,
+		slug,
+	).Scan(&postID, &shares)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, false, ErrNotFound
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("query post: %w", err)
+	}
+
+	tag, err := tx.Exec(ctx,
+		`INSERT INTO sho_post_share_fingerprints (post_id, fp_hash) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+		postID, fpHash,
+	)
+	if err != nil {
+		return 0, false, fmt.Errorf("insert fingerprint: %w", err)
+	}
+
+	if tag.RowsAffected() == 0 {
+		_ = tx.Rollback(ctx)
+		return shares, true, nil
+	}
+
+	err = tx.QueryRow(ctx,
+		`UPDATE sho_posts SET shares = shares + 1 WHERE id = $1 RETURNING shares`,
+		postID,
+	).Scan(&shares)
+	if err != nil {
+		return 0, false, fmt.Errorf("incr share: %w", err)
+	}
+
+	return shares, false, tx.Commit(ctx)
+}
+
 func (s *PostStore) CreateComment(ctx context.Context, postID uuid.UUID, parentID *uuid.UUID, content string) (*model.Comment, error) {
 	c := &model.Comment{}
 	err := s.pool.QueryRow(ctx, `
@@ -377,6 +436,19 @@ func (s *PostStore) GetComments(ctx context.Context, slug string, limit int) ([]
 		comments = append(comments, c)
 	}
 	return comments, rows.Err()
+}
+
+func (s *PostStore) ListByAgent(ctx context.Context, agentID string, limit, offset int) ([]*model.Post, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, slug, title, ai_title, content, format, policy, content_length, views, likes, shares, last_viewed_at, created_at, updated_at,
+		        agent_id, agent_name
+		 FROM sho_posts WHERE deleted_at IS NULL AND agent_id = $1
+		 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
+		agentID, limit, offset)
+	if err != nil {
+		return nil, fmt.Errorf("list by agent: %w", err)
+	}
+	return scanPosts(rows)
 }
 
 // ListPendingAITitle returns posts that have no AI-generated title yet.

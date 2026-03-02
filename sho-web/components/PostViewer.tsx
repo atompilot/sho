@@ -1,7 +1,21 @@
 'use client'
 
-import { useState, useRef, useEffect, CSSProperties } from 'react'
+import { useState, useRef, useEffect, type CSSProperties } from 'react'
 import { useRouter } from 'next/navigation'
+import { motion, AnimatePresence } from 'framer-motion'
+import {
+  EyeIcon,
+  HeartIcon,
+  ShareNetworkIcon,
+  ChatCircleIcon,
+  PencilSimpleIcon,
+  CodeIcon,
+  HouseIcon,
+  LockKeyIcon,
+  XIcon,
+  CopyIcon,
+  CheckIcon,
+} from '@phosphor-icons/react'
 import { ContentRenderer } from './ContentRenderer'
 
 interface Post {
@@ -14,8 +28,11 @@ interface Post {
   policy: string
   view_policy?: 'open' | 'password' | 'human-qa' | 'ai-qa'
   view_qa_question?: string
+  agent_id?: string
+  agent_name?: string
   views: number
   likes: number
+  shares: number
   created_at: string
 }
 
@@ -56,6 +73,22 @@ function buildCommentThreads(comments: Comment[]): CommentThread[] {
   }))
 }
 
+function timeAgo(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  return `${Math.floor(hours / 24)}d ago`
+}
+
+const VIEW_POLICY_LABELS: Record<string, string> = {
+  'password': 'Enter password to view',
+  'human-qa': 'Answer the question to view',
+  'ai-qa': 'Answer the question to view (AI judged)',
+}
+
 const panelStyle = (x: number, y: number): CSSProperties => ({
   position: 'fixed',
   left: x,
@@ -66,15 +99,16 @@ const panelStyle = (x: number, y: number): CSSProperties => ({
   flexDirection: 'column',
   borderRadius: 16,
   overflow: 'hidden',
-  background: 'rgba(0,0,0,0.65)',
-  backdropFilter: 'blur(8px)',
-  border: '1px solid rgba(255,255,255,0.15)',
-  boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+  background: 'rgba(15,23,42,0.7)',
+  backdropFilter: 'blur(16px) saturate(1.6)',
+  WebkitBackdropFilter: 'blur(16px) saturate(1.6)',
+  border: '1px solid rgba(255,255,255,0.12)',
+  boxShadow: '0 8px 32px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.08)',
   cursor: 'grab',
   userSelect: 'none',
 })
 
-const ActionBtn = ({
+function ActionBtn({
   icon,
   count,
   onClick,
@@ -86,97 +120,24 @@ const ActionBtn = ({
   onClick?: React.MouseEventHandler<HTMLButtonElement>
   title?: string
   active?: boolean
-}) => (
-  <button
-    onClick={onClick}
-    title={title}
-    style={{
-      width: 52,
-      minHeight: 52,
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: 2,
-      background: 'none',
-      border: 'none',
-      color: active ? '#f87171' : 'white',
-      cursor: 'pointer',
-      padding: '8px 0',
-    }}
-  >
-    {icon}
-    {count !== undefined && (
-      <span style={{ fontSize: 10, lineHeight: 1, opacity: 0.85 }}>{count}</span>
-    )}
-  </button>
-)
-
-const Divider = () => (
-  <div style={{ height: 1, background: 'rgba(255,255,255,0.1)', margin: '0 8px' }} />
-)
-
-const HeartIcon = ({ filled }: { filled: boolean }) => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" />
-  </svg>
-)
-
-const CommentIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-  </svg>
-)
-
-const CodeIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="16 18 22 12 16 6" />
-    <polyline points="8 6 2 12 8 18" />
-  </svg>
-)
-
-const EyeIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-    <circle cx="12" cy="12" r="3" />
-  </svg>
-)
-
-const EditIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-  </svg>
-)
-
-const HomeIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
-    <polyline points="9,22 9,12 15,12 15,22"/>
-  </svg>
-)
-
-const LockIcon = () => (
-  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-  </svg>
-)
-
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime()
-  const mins = Math.floor(diff / 60000)
-  if (mins < 1) return '刚刚'
-  if (mins < 60) return `${mins}分钟前`
-  const hours = Math.floor(mins / 60)
-  if (hours < 24) return `${hours}小时前`
-  return `${Math.floor(hours / 24)}天前`
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      className="w-[52px] min-h-[52px] flex flex-col items-center justify-center gap-0.5 bg-transparent border-none cursor-pointer py-2 transition-colors duration-150"
+      style={{ color: active ? '#f87171' : 'rgba(255,255,255,0.85)' }}
+    >
+      {icon}
+      {count !== undefined && (
+        <span className="text-[10px] leading-none opacity-80">{count}</span>
+      )}
+    </button>
+  )
 }
 
-const VIEW_POLICY_LABELS: Record<string, string> = {
-  'password': 'Enter password to view',
-  'human-qa': 'Answer the question to view',
-  'ai-qa': 'Answer the question to view (AI judged)',
+function Divider() {
+  return <div className="h-px mx-2" style={{ background: 'rgba(255,255,255,0.08)' }} />
 }
 
 export function PostViewer({ post, initialLikes, initialCommentsCount }: {
@@ -198,6 +159,9 @@ export function PostViewer({ post, initialLikes, initialCommentsCount }: {
   const [submitting, setSubmitting] = useState(false)
   const [replyTo, setReplyTo] = useState<{ id: string; content: string } | null>(null)
   const [editToast, setEditToast] = useState('')
+  const [shares, setShares] = useState(post.shares ?? 0)
+  const [showShare, setShowShare] = useState(false)
+  const [shareCopied, setShareCopied] = useState('')
 
   // View policy unlock state
   const needsUnlock = post.view_policy && post.view_policy !== 'open'
@@ -229,13 +193,13 @@ export function PostViewer({ post, initialLikes, initialCommentsCount }: {
         const { x, y } = JSON.parse(saved)
         setPos({
           x: Math.min(x, window.innerWidth - 60),
-          y: Math.min(y, window.innerHeight - 320),
+          y: Math.min(y, window.innerHeight - 420),
         })
       } catch {
-        setPos({ x: window.innerWidth - 72, y: window.innerHeight - 340 })
+        setPos({ x: window.innerWidth - 72, y: window.innerHeight - 440 })
       }
     } else {
-      setPos({ x: window.innerWidth - 72, y: window.innerHeight - 340 })
+      setPos({ x: window.innerWidth - 72, y: window.innerHeight - 440 })
     }
     setMounted(true)
 
@@ -253,6 +217,7 @@ export function PostViewer({ post, initialLikes, initialCommentsCount }: {
       .then(data => {
         if (data?.likes != null) setLikes(data.likes)
         if (data?.views != null) setViews(data.views)
+        if (data?.shares != null) setShares(data.shares)
       })
       .catch(() => {})
 
@@ -279,7 +244,7 @@ export function PostViewer({ post, initialLikes, initialCommentsCount }: {
       if (Math.abs(dx) > 4 || Math.abs(dy) > 4) didDrag.current = true
       setPos({
         x: clamp(origin.current.btnX + dx, 8, window.innerWidth - 60),
-        y: clamp(origin.current.btnY + dy, 8, window.innerHeight - 320),
+        y: clamp(origin.current.btnY + dy, 8, window.innerHeight - 420),
       })
     }
 
@@ -376,6 +341,34 @@ export function PostViewer({ post, initialLikes, initialCommentsCount }: {
     }
   }
 
+  const [shared, setShared] = useState(false)
+  const handleShare = async () => {
+    setShowShare(true)
+    if (shared) return
+    const prev = shares
+    setShares(s => s + 1)
+    setShared(true)
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/posts/${post.slug}/share`, { method: 'POST' })
+      if (res.ok) {
+        const data = await res.json()
+        setShares(data.shares)
+      } else {
+        setShares(prev)
+        setShared(false)
+      }
+    } catch {
+      setShares(prev)
+      setShared(false)
+    }
+  }
+
+  const handleShareCopy = (label: string, value: string) => {
+    navigator.clipboard.writeText(value)
+    setShareCopied(label)
+    setTimeout(() => setShareCopied(''), 1500)
+  }
+
   const handleEditClick = () => {
     const p = post.policy
     if (p === 'locked') {
@@ -411,67 +404,40 @@ export function PostViewer({ post, initialLikes, initialCommentsCount }: {
     }
   }
 
-  // Determine the content to render
   const displayContent = unlocked && unlockedContent ? unlockedContent : (post.content || '')
   const isLocked = needsUnlock && !unlocked
 
   return (
     <>
-      {/* Content area with optional blur */}
-      <div style={{ position: 'relative' }}>
+      {/* Content area */}
+      <div className="relative">
         {isLocked ? (
           <>
-            {/* Blurred preview background */}
-            <div style={{ filter: 'blur(8px)', pointerEvents: 'none', userSelect: 'none', opacity: 0.6 }}>
-              <div style={{
-                padding: '40px 20px',
-                maxWidth: 800,
-                margin: '0 auto',
-                fontFamily: 'ui-monospace, monospace',
-                fontSize: 14,
-                lineHeight: 1.8,
-                color: '#666',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-              }}>
+            {/* Blurred preview */}
+            <div className="blur-sm pointer-events-none select-none opacity-60">
+              <div className="p-10 max-w-3xl mx-auto font-mono text-sm leading-relaxed text-slate-500 whitespace-pre-wrap break-words">
                 {post.preview || ''}
                 {'\n\n...'}
               </div>
             </div>
 
-            {/* Unlock overlay card */}
-            <div style={{
-              position: 'fixed',
-              inset: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              zIndex: 40,
-              background: 'rgba(0,0,0,0.3)',
-              backdropFilter: 'blur(2px)',
-            }}>
-              <div style={{
-                background: 'white',
-                borderRadius: 16,
-                padding: '32px 28px',
-                width: '100%',
-                maxWidth: 380,
-                boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
-                textAlign: 'center',
-              }}>
-                <div style={{ marginBottom: 16, color: '#6b7280' }}>
-                  <LockIcon />
+            {/* Unlock overlay */}
+            <div className="fixed inset-0 flex items-center justify-center z-40 bg-slate-950/30 backdrop-blur-sm">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+                className="bg-white rounded-2xl p-8 w-full max-w-sm shadow-2xl text-center"
+              >
+                <div className="mb-4 text-slate-400">
+                  <LockKeyIcon size={28} weight="light" />
                 </div>
-                <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8, color: '#111' }}>
+                <h2 className="text-lg font-semibold text-slate-900 mb-2">
                   {VIEW_POLICY_LABELS[post.view_policy || ''] || 'Content Protected'}
                 </h2>
 
                 {(post.view_policy === 'human-qa' || post.view_policy === 'ai-qa') && post.view_qa_question && (
-                  <p style={{
-                    fontSize: 14, color: '#374151', marginBottom: 16,
-                    background: '#f3f4f6', borderRadius: 8, padding: '10px 14px',
-                    textAlign: 'left', lineHeight: 1.6,
-                  }}>
+                  <p className="text-sm text-slate-600 mb-4 bg-slate-50 rounded-xl p-3 text-left leading-relaxed">
                     {post.view_qa_question}
                   </p>
                 )}
@@ -483,44 +449,21 @@ export function PostViewer({ post, initialLikes, initialCommentsCount }: {
                   onKeyDown={e => { if (e.key === 'Enter') handleVerifyView() }}
                   placeholder={post.view_policy === 'password' ? 'Enter password' : 'Your answer'}
                   autoFocus
-                  style={{
-                    width: '100%',
-                    border: '1px solid #e5e7eb',
-                    borderRadius: 10,
-                    padding: '10px 14px',
-                    fontSize: 14,
-                    outline: 'none',
-                    marginBottom: 12,
-                    boxSizing: 'border-box',
-                  }}
+                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all"
                 />
 
                 {verifyError && (
-                  <p style={{ fontSize: 13, color: '#ef4444', marginBottom: 10 }}>
-                    {verifyError}
-                  </p>
+                  <p className="text-sm text-red-500 mb-3">{verifyError}</p>
                 )}
 
                 <button
                   onClick={handleVerifyView}
                   disabled={verifying || !credential.trim()}
-                  style={{
-                    width: '100%',
-                    background: credential.trim() ? '#111' : '#d1d5db',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: 10,
-                    padding: '10px 0',
-                    fontSize: 14,
-                    fontWeight: 500,
-                    cursor: credential.trim() ? 'pointer' : 'default',
-                    opacity: verifying ? 0.6 : 1,
-                    transition: 'background 0.2s',
-                  }}
+                  className="w-full bg-slate-800 text-white rounded-xl py-2.5 text-sm font-medium disabled:bg-slate-300 disabled:cursor-default hover:bg-slate-900 transition-colors"
                 >
                   {verifying ? 'Verifying...' : 'Unlock'}
                 </button>
-              </div>
+              </motion.div>
             </div>
           </>
         ) : (
@@ -528,199 +471,281 @@ export function PostViewer({ post, initialLikes, initialCommentsCount }: {
         )}
       </div>
 
+      {/* Agent badge */}
+      {mounted && post.agent_name && (
+        <div className="fixed bottom-4 left-4 z-40">
+          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium"
+            style={{
+              background: 'rgba(15,23,42,0.6)',
+              backdropFilter: 'blur(12px)',
+              color: 'rgba(255,255,255,0.75)',
+              border: '1px solid rgba(255,255,255,0.1)',
+            }}
+          >
+            <span style={{ color: 'rgba(251,146,60,0.9)' }}>&#9679;</span>
+            Published by {post.agent_name}
+          </div>
+        </div>
+      )}
+
+      {/* FAB */}
       {mounted && (
-        <div
+        <motion.div
           data-fab
           style={panelStyle(pos.x, pos.y)}
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ type: 'spring', stiffness: 400, damping: 25, delay: 0.3 }}
           onMouseDown={(e) => { startDrag(e.clientX, e.clientY); e.preventDefault() }}
           onTouchStart={(e) => startDrag(e.touches[0].clientX, e.touches[0].clientY)}
         >
           <ActionBtn
-            icon={<EyeIcon />}
+            icon={<EyeIcon size={18} weight="regular" />}
             count={views}
-            title="浏览数"
+            title="Views"
           />
           <Divider />
           <ActionBtn
-            icon={<HeartIcon filled={liked} />}
+            icon={<HeartIcon size={18} weight={liked ? 'fill' : 'regular'} />}
             count={likes}
             active={liked}
-            title="点赞"
+            title="Like"
             onClick={(e) => { if (!didDrag.current) { e.stopPropagation(); handleLike() } }}
           />
           <Divider />
           <ActionBtn
-            icon={<CommentIcon />}
+            icon={<ShareNetworkIcon size={18} weight="regular" />}
+            count={shares}
+            title="Share"
+            onClick={(e) => { if (!didDrag.current) { e.stopPropagation(); handleShare() } }}
+          />
+          <Divider />
+          <ActionBtn
+            icon={<ChatCircleIcon size={18} weight="regular" />}
             count={commentsCount}
-            title="评论"
+            title="Comments"
             onClick={(e) => { if (!didDrag.current) { e.stopPropagation(); openComments() } }}
           />
           <Divider />
           <ActionBtn
-            icon={<EditIcon />}
-            title="编辑"
+            icon={<PencilSimpleIcon size={18} weight="regular" />}
+            title="Edit"
             onClick={(e) => { if (!didDrag.current) { e.stopPropagation(); handleEditClick() } }}
           />
           <Divider />
           <ActionBtn
-            icon={mode === 'preview' ? <CodeIcon /> : <EyeIcon />}
-            title={mode === 'preview' ? '查看源码' : '查看预览'}
+            icon={mode === 'preview' ? <CodeIcon size={18} weight="regular" /> : <EyeIcon size={18} weight="regular" />}
+            title={mode === 'preview' ? 'View source' : 'View preview'}
             onClick={(e) => { if (!didDrag.current) { e.stopPropagation(); setMode(m => m === 'preview' ? 'source' : 'preview') } }}
           />
           <Divider />
           <ActionBtn
-            icon={<HomeIcon />}
-            title="返回主页"
+            icon={<HouseIcon size={18} weight="regular" />}
+            title="Home"
             onClick={(e) => { if (!didDrag.current) { e.stopPropagation(); router.push('/') } }}
           />
-        </div>
+        </motion.div>
       )}
 
-      {/* Toast for locked */}
-      {editToast && (
-        <div style={{
-          position: 'fixed', bottom: 32, left: '50%', transform: 'translateX(-50%)',
-          background: 'rgba(0,0,0,0.85)', color: 'white', padding: '10px 20px',
-          borderRadius: 10, fontSize: 13, zIndex: 70, backdropFilter: 'blur(8px)',
-        }}>
-          {editToast}
-        </div>
-      )}
-
-      {showComments && (
-        <>
-          <div
-            onClick={() => { setShowComments(false); setReplyTo(null) }}
-            style={{
-              position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
-              zIndex: 59,
-            }}
-          />
-          <div
-            style={{
-              position: 'fixed',
-              bottom: 0,
-              left: '50%',
-              transform: 'translateX(-50%)',
-              width: '100%',
-              maxWidth: 480,
-              height: 'min(60vh, 500px)',
-              background: 'rgba(20,20,20,0.98)',
-              backdropFilter: 'blur(16px)',
-              borderRadius: '16px 16px 0 0',
-              zIndex: 60,
-              display: 'flex',
-              flexDirection: 'column',
-              boxShadow: '0 -4px 40px rgba(0,0,0,0.5)',
-            }}
+      {/* Toast */}
+      <AnimatePresence>
+        {editToast && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[70] bg-slate-900/90 backdrop-blur-lg text-white px-5 py-2.5 rounded-xl text-sm shadow-lg"
           >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-              <span style={{ color: 'white', fontSize: 15, fontWeight: 600 }}>评论 {commentsCount > 0 ? `(${commentsCount})` : ''}</span>
-              <button
-                onClick={() => { setShowComments(false); setReplyTo(null) }}
-                style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.5)', cursor: 'pointer', fontSize: 20, lineHeight: 1, padding: 4 }}
-              >
-                ×
-              </button>
-            </div>
+            {editToast}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-            <div style={{ flex: 1, overflowY: 'auto', padding: '4px 20px 8px' }}>
-              {comments.length === 0 ? (
-                <p style={{ color: 'rgba(255,255,255,0.35)', fontSize: 13, textAlign: 'center', marginTop: 32 }}>还没有评论，来第一个吧</p>
-              ) : (
-                buildCommentThreads(comments).map(thread => (
-                  <div key={thread.comment.id} style={{ padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                    <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: 14, margin: 0, lineHeight: 1.6 }}>{thread.comment.content}</p>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
-                      <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>{timeAgo(thread.comment.created_at)}</span>
-                      <button
-                        onClick={() => setReplyTo({ id: thread.comment.id, content: thread.comment.content })}
-                        style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: 11, padding: 0 }}
-                      >
-                        回复
-                      </button>
-                    </div>
-
-                    {thread.replies.length > 0 && (
-                      <div style={{ marginLeft: 20, marginTop: 8, borderLeft: '2px solid rgba(255,255,255,0.08)', paddingLeft: 12 }}>
-                        {thread.replies.map(reply => (
-                          <div key={reply.id} style={{ padding: '8px 0' }}>
-                            <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: 13, margin: 0, lineHeight: 1.5 }}>{reply.content}</p>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 3 }}>
-                              <span style={{ color: 'rgba(255,255,255,0.25)', fontSize: 11 }}>{timeAgo(reply.created_at)}</span>
-                              <button
-                                onClick={() => setReplyTo({ id: reply.id, content: reply.content })}
-                                style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.35)', cursor: 'pointer', fontSize: 11, padding: 0 }}
-                              >
-                                回复
-                              </button>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div style={{ padding: '8px 20px 12px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-              {replyTo && (
-                <div style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  padding: '6px 0', marginBottom: 6,
-                }}>
-                  <span style={{ color: 'rgba(255,255,255,0.4)', fontSize: 12 }}>
-                    回复: {replyTo.content.length > 30 ? replyTo.content.slice(0, 30) + '…' : replyTo.content}
-                  </span>
-                  <button
-                    onClick={() => setReplyTo(null)}
-                    style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.35)', cursor: 'pointer', fontSize: 14, padding: '0 4px' }}
-                  >
-                    ×
-                  </button>
-                </div>
-              )}
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                <input
-                  value={commentInput}
-                  onChange={e => setCommentInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitComment() } }}
-                  placeholder={replyTo ? '写回复…' : '写评论…'}
-                  style={{
-                    flex: 1,
-                    background: 'rgba(255,255,255,0.07)',
-                    border: '1px solid rgba(255,255,255,0.1)',
-                    borderRadius: 20,
-                    padding: '9px 16px',
-                    color: 'white',
-                    fontSize: 13,
-                    outline: 'none',
-                  }}
-                />
+      {/* Share Panel */}
+      <AnimatePresence>
+        {showShare && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowShare(false)}
+              className="fixed inset-0 bg-slate-950/50 z-[59]"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+              className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-sm z-[60] rounded-2xl overflow-hidden p-6"
+              style={{
+                background: 'rgba(15,23,42,0.97)',
+                backdropFilter: 'blur(16px)',
+                boxShadow: '0 8px 40px rgba(0,0,0,0.4)',
+                border: '1px solid rgba(255,255,255,0.08)',
+              }}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <span className="text-white text-sm font-semibold">Share</span>
                 <button
-                  onClick={submitComment}
-                  disabled={submitting || !commentInput.trim()}
-                  style={{
-                    background: commentInput.trim() ? '#8b5cf6' : 'rgba(255,255,255,0.1)',
-                    border: 'none',
-                    borderRadius: 20,
-                    color: 'white',
-                    padding: '9px 18px',
-                    cursor: commentInput.trim() ? 'pointer' : 'default',
-                    fontSize: 13,
-                    fontWeight: 500,
-                    opacity: submitting ? 0.5 : 1,
-                    transition: 'background 0.2s',
-                  }}
+                  onClick={() => setShowShare(false)}
+                  className="text-white/40 hover:text-white/70 transition-colors"
                 >
-                  发送
+                  <XIcon size={18} />
                 </button>
               </div>
-            </div>
-          </div>
-        </>
-      )}
+
+              <div className="bg-white/[0.06] border border-white/[0.08] rounded-xl px-4 py-3 space-y-2">
+                {(post.title || post.ai_title) && (
+                  <div>
+                    <div className="text-[11px] text-white/40 mb-0.5">Title</div>
+                    <div className="text-sm text-white/90">{post.title || post.ai_title}</div>
+                  </div>
+                )}
+                <div>
+                  <div className="text-[11px] text-white/40 mb-0.5">Link</div>
+                  <div className="text-sm text-white/90 break-all">{typeof window !== 'undefined' ? `${window.location.origin}/${post.slug}` : `/${post.slug}`}</div>
+                </div>
+              </div>
+
+              <button
+                onClick={() => {
+                  const title = post.title || post.ai_title
+                  const link = typeof window !== 'undefined' ? `${window.location.origin}/${post.slug}` : `/${post.slug}`
+                  const text = title ? `${title}\n${link}` : link
+                  handleShareCopy('all', text)
+                }}
+                className="w-full mt-3 flex items-center justify-center gap-2 bg-white/[0.1] hover:bg-white/[0.15] border border-white/[0.1] rounded-xl px-4 py-2.5 text-sm text-white/90 font-medium transition-colors"
+              >
+                {shareCopied === 'all' ? <><CheckIcon size={16} weight="bold" /> Copied</> : <><CopyIcon size={16} /> Copy</>}
+              </button>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Comments Panel */}
+      <AnimatePresence>
+        {showComments && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => { setShowComments(false); setReplyTo(null) }}
+              className="fixed inset-0 bg-slate-950/50 z-[59]"
+            />
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+              className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[480px] z-[60] flex flex-col rounded-t-2xl overflow-hidden"
+              style={{
+                height: 'min(60vh, 500px)',
+                background: 'rgba(15,23,42,0.97)',
+                backdropFilter: 'blur(16px)',
+                boxShadow: '0 -4px 40px rgba(0,0,0,0.4)',
+              }}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/[0.06]">
+                <span className="text-white text-sm font-semibold">
+                  Comments {commentsCount > 0 ? `(${commentsCount})` : ''}
+                </span>
+                <button
+                  onClick={() => { setShowComments(false); setReplyTo(null) }}
+                  className="text-white/40 hover:text-white/70 transition-colors"
+                >
+                  <XIcon size={18} />
+                </button>
+              </div>
+
+              {/* Comments list */}
+              <div className="flex-1 overflow-y-auto px-5 py-2">
+                {comments.length === 0 ? (
+                  <p className="text-white/30 text-sm text-center mt-8">
+                    No comments yet. Be the first.
+                  </p>
+                ) : (
+                  buildCommentThreads(comments).map((thread, idx) => (
+                    <motion.div
+                      key={thread.comment.id}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: idx * 0.04 }}
+                      className="py-3 border-b border-white/[0.05]"
+                    >
+                      <p className="text-white/90 text-sm leading-relaxed">{thread.comment.content}</p>
+                      <div className="flex items-center gap-3 mt-1.5">
+                        <span className="text-white/25 text-[11px]">{timeAgo(thread.comment.created_at)}</span>
+                        <button
+                          onClick={() => setReplyTo({ id: thread.comment.id, content: thread.comment.content })}
+                          className="text-white/35 hover:text-white/60 text-[11px] transition-colors"
+                        >
+                          Reply
+                        </button>
+                      </div>
+
+                      {thread.replies.length > 0 && (
+                        <div className="ml-5 mt-2 border-l-2 border-white/[0.06] pl-3">
+                          {thread.replies.map(reply => (
+                            <div key={reply.id} className="py-2">
+                              <p className="text-white/80 text-[13px] leading-relaxed">{reply.content}</p>
+                              <div className="flex items-center gap-3 mt-1">
+                                <span className="text-white/20 text-[11px]">{timeAgo(reply.created_at)}</span>
+                                <button
+                                  onClick={() => setReplyTo({ id: reply.id, content: reply.content })}
+                                  className="text-white/30 hover:text-white/60 text-[11px] transition-colors"
+                                >
+                                  Reply
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </motion.div>
+                  ))
+                )}
+              </div>
+
+              {/* Comment input */}
+              <div className="px-5 py-3 border-t border-white/[0.06]">
+                {replyTo && (
+                  <div className="flex items-center justify-between pb-2">
+                    <span className="text-white/35 text-xs">
+                      Replying to: {replyTo.content.length > 30 ? replyTo.content.slice(0, 30) + '...' : replyTo.content}
+                    </span>
+                    <button
+                      onClick={() => setReplyTo(null)}
+                      className="text-white/30 hover:text-white/50 transition-colors"
+                    >
+                      <XIcon size={14} />
+                    </button>
+                  </div>
+                )}
+                <div className="flex gap-2 items-center">
+                  <input
+                    value={commentInput}
+                    onChange={e => setCommentInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitComment() } }}
+                    placeholder={replyTo ? 'Write a reply...' : 'Write a comment...'}
+                    className="flex-1 bg-white/[0.06] border border-white/[0.08] rounded-full px-4 py-2.5 text-white text-sm placeholder:text-white/25 outline-none focus:border-white/20 transition-colors"
+                  />
+                  <button
+                    onClick={submitComment}
+                    disabled={submitting || !commentInput.trim()}
+                    className="bg-orange-500 hover:bg-orange-600 disabled:bg-white/10 text-white rounded-full px-5 py-2.5 text-sm font-medium transition-colors disabled:cursor-default"
+                  >
+                    Send
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </>
   )
 }

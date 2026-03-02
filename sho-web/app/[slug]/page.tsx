@@ -14,6 +14,7 @@ interface Post {
   view_qa_question?: string
   views: number
   likes: number
+  shares: number
   created_at: string
   updated_at: string
 }

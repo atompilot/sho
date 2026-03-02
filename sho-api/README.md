@@ -86,9 +86,9 @@ sho-api/
 | POST | `/posts/{slug}/comments` | CreateComment |
 | POST | `/posts/{slug}/verify-view` | VerifyView |
 
-### MCP (`/mcp/sse`)
+### MCP (`/mcp`)
 
-SSE transport with 8 tools: `sho_publish`, `sho_get`, `sho_update`, `sho_delete`, `sho_list`, `sho_like`, `sho_comment`, `sho_list_comments`.
+Stateless Streamable HTTP transport with tools: `sho_publish`, `sho_get`, `sho_update`, `sho_delete`, `sho_list`, `sho_like`, `sho_comment`, `sho_list_comments`.
 
 ## Database
 

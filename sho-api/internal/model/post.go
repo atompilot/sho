@@ -63,13 +63,18 @@ type Post struct {
 	ViewPolicy     ViewPolicy `json:"view_policy"`
 	ViewPassword   *string    `json:"-"`
 	ViewQAQuestion *string    `json:"view_qa_question,omitempty"`
+	ViewQAPrompt   *string    `json:"-"`
 	ViewQAAnswer   *string    `json:"-"`
 	Unlisted       bool       `json:"unlisted"`
+	AgentID        *string    `json:"agent_id,omitempty"`
+	AgentName      *string    `json:"agent_name,omitempty"`
+	ChannelID      *uuid.UUID `json:"channel_id,omitempty"`
 	EditToken      string     `json:"-"`
 	ContentLength  int        `json:"content_length"`
 	VersionCount   int        `json:"version_count"`
 	Views          int        `json:"views"`
 	Likes          int        `json:"likes"`
+	Shares         int        `json:"shares"`
 	LastViewedAt   *time.Time `json:"last_viewed_at,omitempty"`
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`

@@ -6,17 +6,23 @@ import (
 	"fmt"
 
 	"github.com/atompilot/sho-api/internal/model"
+	"github.com/atompilot/sho-api/internal/policy"
 	"github.com/atompilot/sho-api/internal/service"
+	"github.com/atompilot/sho-api/internal/store"
 	"github.com/google/uuid"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
 
 // NewMCPServer creates an MCPServer with all Sho tools registered.
-func NewMCPServer(postSvc *service.PostService, llmClient service.LLMChatter) *mcpserver.MCPServer {
-	s := mcpserver.NewMCPServer("sho", "1.0.0")
+func NewMCPServer(postSvc *service.PostService, llmClient service.LLMChatter, webhookStore *store.WebhookStore, channelStore *store.ChannelStore) *mcpserver.MCPServer {
+	s := mcpserver.NewMCPServer("sho", "1.0.0",
+		mcpserver.WithToolCapabilities(true),
+		mcpserver.WithRecovery(),
+		mcpserver.WithInstructions("Sho is a content publishing platform. Use these tools to publish, read, update, delete, like, comment on posts, and manage channels."),
+	)
 
-	s.AddTool(publishTool(), publishHandler(postSvc))
+	s.AddTool(publishTool(), publishHandler(postSvc, webhookStore))
 	s.AddTool(getTool(), getHandler(postSvc))
 	s.AddTool(updateTool(), updateHandler(postSvc, llmClient))
 	s.AddTool(deleteTool(), deleteHandler(postSvc))
@@ -24,17 +30,19 @@ func NewMCPServer(postSvc *service.PostService, llmClient service.LLMChatter) *m
 	s.AddTool(likeTool(), likeHandler(postSvc))
 	s.AddTool(commentTool(), commentHandler(postSvc))
 	s.AddTool(listCommentsTool(), listCommentsHandler(postSvc))
+	s.AddTool(listByAgentTool(), listByAgentHandler(postSvc))
+	if channelStore != nil {
+		s.AddTool(createChannelTool(), createChannelHandler(channelStore))
+	}
 
 	return s
 }
 
-// SSEServer creates an SSEServer configured to serve at "/mcp" on the given
-// baseURL (e.g. "http://localhost:8080"). Callers can register the individual
-// handlers via SSEHandler() and MessageHandler().
-func SSEServer(s *mcpserver.MCPServer, baseURL string) *mcpserver.SSEServer {
-	return mcpserver.NewSSEServer(s,
-		mcpserver.WithBaseURL(baseURL),
-		mcpserver.WithStaticBasePath("/mcp"),
+// HTTPServer creates a stateless StreamableHTTP server at "/mcp".
+func HTTPServer(s *mcpserver.MCPServer) *mcpserver.StreamableHTTPServer {
+	return mcpserver.NewStreamableHTTPServer(s,
+		mcpserver.WithEndpointPath("/mcp"),
+		mcpserver.WithStateLess(true),
 	)
 }
 
@@ -68,11 +76,26 @@ func publishTool() mcp.Tool {
 		mcp.WithString("view_qa_question",
 			mcp.Description("Question for human-qa or ai-qa view policy."),
 		),
+		mcp.WithString("view_qa_prompt",
+			mcp.Description("Custom AI judgment prompt for ai-qa view policy. Instructs how the AI should evaluate answers."),
+		),
 		mcp.WithString("view_qa_answer",
 			mcp.Description("Answer for human-qa view policy (exact match)."),
 		),
 		mcp.WithBoolean("unlisted",
 			mcp.Description("If true, post won't appear in lists/search/explore. Only accessible via direct link (default: false)."),
+		),
+		mcp.WithString("agent_id",
+			mcp.Description("Optional agent identifier for attribution (e.g. 'research-bot-001')."),
+		),
+		mcp.WithString("agent_name",
+			mcp.Description("Optional human-readable agent name (e.g. 'Research Bot')."),
+		),
+		mcp.WithString("webhook_url",
+			mcp.Description("Optional webhook URL to receive notifications when the post is liked or commented on."),
+		),
+		mcp.WithString("channel",
+			mcp.Description("Optional channel name to publish into (channel must exist first)."),
 		),
 	)
 }
@@ -136,7 +159,7 @@ func listTool() mcp.Tool {
 
 // ---- handlers ---------------------------------------------------------------
 
-func publishHandler(svc *service.PostService) mcpserver.ToolHandlerFunc {
+func publishHandler(svc *service.PostService, webhookStore *store.WebhookStore) mcpserver.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		content := req.GetString("content", "")
 		if content == "" {
@@ -207,15 +230,45 @@ func publishHandler(svc *service.PostService) mcpserver.ToolHandlerFunc {
 		if vqq := req.GetString("view_qa_question", ""); vqq != "" {
 			input.ViewQAQuestion = &vqq
 		}
+		if vqp := req.GetString("view_qa_prompt", ""); vqp != "" {
+			input.ViewQAPrompt = &vqp
+		}
 		if vqa := req.GetString("view_qa_answer", ""); vqa != "" {
 			input.ViewQAAnswer = &vqa
 		}
 		if req.GetBool("unlisted", false) {
 			input.Unlisted = true
 		}
+		if aid := req.GetString("agent_id", ""); aid != "" {
+			input.AgentID = &aid
+		}
+		if aname := req.GetString("agent_name", ""); aname != "" {
+			input.AgentName = &aname
+		}
+		if wurl := req.GetString("webhook_url", ""); wurl != "" {
+			input.WebhookURL = &wurl
+		}
+		if ch := req.GetString("channel", ""); ch != "" {
+			input.Channel = &ch
+		}
 		resp, err := svc.CreatePost(ctx, input)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("create post: %v", err)), nil
+		}
+
+		// Register webhook if provided
+		if input.WebhookURL != nil && *input.WebhookURL != "" && webhookStore != nil {
+			wh := &store.Webhook{
+				ID:          uuid.New(),
+				PostSlug:    resp.Slug,
+				EndpointURL: *input.WebhookURL,
+				Events:      []string{"post.updated", "post.liked", "comment.created"},
+				IsActive:    true,
+			}
+			if whErr := webhookStore.Create(ctx, wh); whErr != nil {
+				// Non-fatal: log but don't fail the publish
+				_ = whErr
+			}
 		}
 
 		data, err := json.Marshal(resp)
@@ -412,6 +465,104 @@ func listCommentsHandler(svc *service.PostService) mcpserver.ToolHandlerFunc {
 		}
 
 		data, _ := json.Marshal(comments)
+		return mcp.NewToolResultText(string(data)), nil
+	}
+}
+
+func listByAgentTool() mcp.Tool {
+	return mcp.NewTool("sho_list_by_agent",
+		mcp.WithDescription("List posts published by a specific agent."),
+		mcp.WithString("agent_id",
+			mcp.Required(),
+			mcp.Description("The agent identifier to filter by."),
+		),
+		mcp.WithNumber("limit",
+			mcp.Description("Maximum number of posts to return (1–100, default 20)."),
+		),
+		mcp.WithNumber("offset",
+			mcp.Description("Pagination offset (default 0)."),
+		),
+	)
+}
+
+func listByAgentHandler(svc *service.PostService) mcpserver.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		agentID, err := req.RequireString("agent_id")
+		if err != nil {
+			return mcp.NewToolResultError("agent_id is required"), nil
+		}
+		limit := req.GetInt("limit", 20)
+		offset := req.GetInt("offset", 0)
+
+		posts, err := svc.ListByAgent(ctx, agentID, limit, offset)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("list by agent: %v", err)), nil
+		}
+
+		data, err := json.Marshal(posts)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("marshal response: %v", err)), nil
+		}
+		return mcp.NewToolResultText(string(data)), nil
+	}
+}
+
+func createChannelTool() mcp.Tool {
+	return mcp.NewTool("sho_create_channel",
+		mcp.WithDescription("Create a named channel for organizing published content."),
+		mcp.WithString("name",
+			mcp.Required(),
+			mcp.Description("URL-friendly channel name (e.g. 'research-weekly')."),
+		),
+		mcp.WithString("display_name",
+			mcp.Description("Human-readable display name."),
+		),
+		mcp.WithString("description",
+			mcp.Description("Channel description."),
+		),
+		mcp.WithString("agent_id",
+			mcp.Description("Optional agent identifier to associate with this channel."),
+		),
+	)
+}
+
+func createChannelHandler(channelStore *store.ChannelStore) mcpserver.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		name, err := req.RequireString("name")
+		if err != nil {
+			return mcp.NewToolResultError("name is required"), nil
+		}
+
+		editToken, err := policy.GenerateToken(32)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("generate token: %v", err)), nil
+		}
+
+		ch := &model.Channel{
+			ID:        uuid.New(),
+			Name:      name,
+			EditToken: editToken,
+		}
+		if dn := req.GetString("display_name", ""); dn != "" {
+			ch.DisplayName = &dn
+		}
+		if desc := req.GetString("description", ""); desc != "" {
+			ch.Description = &desc
+		}
+		if aid := req.GetString("agent_id", ""); aid != "" {
+			ch.AgentID = &aid
+		}
+
+		if err := channelStore.Create(ctx, ch); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("create channel: %v", err)), nil
+		}
+
+		data, _ := json.Marshal(map[string]any{
+			"id":         ch.ID,
+			"name":       ch.Name,
+			"edit_token": ch.EditToken,
+			"created_at": ch.CreatedAt,
+		})
 		return mcp.NewToolResultText(string(data)), nil
 	}
 }

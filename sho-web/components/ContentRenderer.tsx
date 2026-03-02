@@ -55,8 +55,8 @@ function buildJsxSrcdoc(content: string): string {
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"><\/script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"><\/script>
 <style>
-  html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden}
-  body{font-family:system-ui,sans-serif;line-height:1.5;display:flex;align-items:center;justify-content:center}
+  html,body,#root{margin:0;padding:0;width:100%;height:100%;overflow:auto}
+  body{font-family:system-ui,sans-serif;line-height:1.5}
   #err{color:#c00;font-size:12px;white-space:pre-wrap;font-family:monospace;padding:16px}
 </style>
 </head>
@@ -71,6 +71,25 @@ ${safe(mountCode)}
 <\/script>
 </body>
 </html>`
+}
+
+// ── HTML srcdoc builder ──────────────────────────────────────────────────────
+
+function buildHtmlSrcdoc(content: string): string {
+  // If the content already contains <html or <!DOCTYPE, use it as-is but inject base styles
+  if (/^\s*(<(!DOCTYPE|html))/i.test(content)) {
+    // Inject a base style reset into the existing <head> if present
+    const baseStyle = '<style>html,body{margin:0;padding:0;width:100%;height:100%}</style>'
+    if (/<head[^>]*>/i.test(content)) {
+      return content.replace(/(<head[^>]*>)/i, `$1${baseStyle}`)
+    }
+    return content
+  }
+  // Wrap partial HTML with full-screen base styles
+  return `<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>html,body{margin:0;padding:0;width:100%;height:100%}</style>
+</head><body>${content}</body></html>`
 }
 
 // ── SVG srcdoc builder ───────────────────────────────────────────────────────
@@ -245,7 +264,7 @@ export function ContentRenderer({ content, format, mode }: Props) {
       case 'p5':     srcdoc = buildP5Srcdoc(content); break
       case 'reveal': srcdoc = buildRevealSrcdoc(content); break
       case 'glsl':   srcdoc = buildGlslSrcdoc(content); break
-      default:       srcdoc = content // html
+      default:       srcdoc = buildHtmlSrcdoc(content) // html
     }
     return (
       <iframe

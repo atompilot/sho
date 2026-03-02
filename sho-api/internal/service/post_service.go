@@ -23,7 +23,16 @@ var defaultAIReviewPrompt = func() string {
 	return "You are an edit reviewer for a published post. Evaluate whether the proposed edit is constructive and appropriate. " +
 		"Accept edits that fix typos, improve clarity, add useful information, or make reasonable updates. " +
 		"Reject edits that are spam, vandalism, off-topic, or destructive. " +
-		"Reply with exactly APPROVE or REJECT followed by a brief reason."
+		"Your response MUST start with the word APPROVE or REJECT (nothing before it), followed by a brief reason."
+}()
+
+var defaultAIQAPrompt = func() string {
+	if v := os.Getenv("DEFAULT_AI_QA_PROMPT"); v != "" {
+		return v
+	}
+	return "You are a gatekeeper for content access. Evaluate whether the user's answer demonstrates genuine understanding or knowledge. " +
+		"Be reasonably lenient — accept answers that are roughly correct, use synonyms, or show clear understanding even if not word-perfect. " +
+		"Reply with exactly YES or NO."
 }()
 
 // ErrEmptyContent is returned when the submitted content is blank after trimming.
@@ -39,11 +48,16 @@ func (e ErrDuplicateContent) Error() string {
 }
 
 type PostService struct {
-	store *store.PostStore
+	store        *store.PostStore
+	channelStore *store.ChannelStore
 }
 
 func NewPostService(s *store.PostStore) *PostService {
 	return &PostService{store: s}
+}
+
+func (s *PostService) SetChannelStore(cs *store.ChannelStore) {
+	s.channelStore = cs
 }
 
 type CreatePostInput struct {
@@ -56,8 +70,13 @@ type CreatePostInput struct {
 	ViewPolicy     model.ViewPolicy
 	ViewPassword   *string
 	ViewQAQuestion *string
+	ViewQAPrompt   *string
 	ViewQAAnswer   *string
 	Unlisted       bool
+	AgentID        *string
+	AgentName      *string
+	WebhookURL     *string
+	Channel        *string // channel name; resolved to channel_id before persistence
 }
 
 type UpdatePostInput struct {
@@ -76,8 +95,8 @@ func (s *PostService) CreatePost(ctx context.Context, input CreatePostInput) (*m
 		return nil, ErrEmptyContent
 	}
 
-	// Reject duplicate content — return the existing post's slug.
-	existingSlug, err := s.store.FindByContent(ctx, input.Content)
+	// Reject duplicate title+content — return the existing post's slug.
+	existingSlug, err := s.store.FindByTitleAndContent(ctx, input.Title, input.Content)
 	if err != nil {
 		return nil, fmt.Errorf("check duplicate: %w", err)
 	}
@@ -143,6 +162,16 @@ func (s *PostService) CreatePost(ctx context.Context, input CreatePostInput) (*m
 		}
 	}
 
+	// Resolve channel name to channel ID if provided.
+	var channelID *uuid.UUID
+	if input.Channel != nil && *input.Channel != "" && s.channelStore != nil {
+		ch, err := s.channelStore.GetByName(ctx, *input.Channel)
+		if err != nil {
+			return nil, fmt.Errorf("channel %q not found", *input.Channel)
+		}
+		channelID = &ch.ID
+	}
+
 	post := &model.Post{
 		ID:             uuid.New(),
 		Slug:           slug,
@@ -154,8 +183,12 @@ func (s *PostService) CreatePost(ctx context.Context, input CreatePostInput) (*m
 		EditToken:      editToken,
 		ViewPolicy:     input.ViewPolicy,
 		ViewQAQuestion: input.ViewQAQuestion,
+		ViewQAPrompt:   input.ViewQAPrompt,
 		ViewQAAnswer:   input.ViewQAAnswer,
 		Unlisted:       input.Unlisted,
+		AgentID:        input.AgentID,
+		AgentName:      input.AgentName,
+		ChannelID:      channelID,
 	}
 
 	if input.Policy == model.PolicyPassword && input.Password != nil {
@@ -264,13 +297,24 @@ func (s *PostService) verifyAIReview(ctx context.Context, client LLMChatter, pos
 	verdict := strings.TrimSpace(resp)
 	upper := strings.ToUpper(verdict)
 
-	if strings.HasPrefix(upper, "APPROVE") {
+	// Strip markdown headers and leading punctuation for robust parsing.
+	cleaned := strings.TrimLeft(upper, "#* \t")
+
+	if strings.HasPrefix(cleaned, "APPROVE") {
+		return nil
+	}
+	// Also accept "APPROVED" as approval.
+	if strings.HasPrefix(cleaned, "APPROVED") {
 		return nil
 	}
 
 	reason := verdict
-	if strings.HasPrefix(upper, "REJECT") {
-		reason = strings.TrimSpace(verdict[len("REJECT"):])
+	if strings.HasPrefix(cleaned, "REJECT") {
+		// Extract reason after REJECT/REJECTED keyword
+		idx := strings.Index(upper, "REJECT")
+		after := verdict[idx+len("REJECT"):]
+		after = strings.TrimLeft(after, "ED") // handle REJECTED
+		reason = strings.TrimSpace(after)
 		reason = strings.TrimLeft(reason, ":.- ")
 		if reason == "" {
 			reason = "edit was not approved"
@@ -393,6 +437,16 @@ func applyFormatDiversity(posts []*model.Post, limit int) []*model.Post {
 	return result
 }
 
+func (s *PostService) ListByAgent(ctx context.Context, agentID string, limit, offset int) ([]*model.Post, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	return s.store.ListByAgent(ctx, agentID, limit, offset)
+}
+
 func (s *PostService) SearchPosts(ctx context.Context, query string, limit, offset int, format string) ([]*model.Post, error) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
@@ -408,6 +462,10 @@ func (s *PostService) SearchPosts(ctx context.Context, query string, limit, offs
 
 func (s *PostService) LikePost(ctx context.Context, slug, fpHash string) (int, bool, error) {
 	return s.store.TryLike(ctx, slug, fpHash)
+}
+
+func (s *PostService) SharePost(ctx context.Context, slug, fpHash string) (int, bool, error) {
+	return s.store.TryShare(ctx, slug, fpHash)
 }
 
 // ErrEmptyComment is returned when comment content is empty.
@@ -567,7 +625,11 @@ func (s *PostService) VerifyView(ctx context.Context, slug, credential string, l
 		if post.ViewQAQuestion != nil {
 			question = *post.ViewQAQuestion
 		}
-		granted, err := verifyAIQA(ctx, llmClient, question, credential)
+		var customPrompt string
+		if post.ViewQAPrompt != nil {
+			customPrompt = *post.ViewQAPrompt
+		}
+		granted, err := verifyAIQA(ctx, llmClient, question, credential, customPrompt)
 		if err != nil {
 			return &VerifyViewResult{Granted: false, Error: "AI verification failed, please try again"}, nil
 		}
@@ -585,11 +647,15 @@ type LLMChatter interface {
 	Chat(ctx context.Context, messages []llm.Message) (string, error)
 }
 
-func verifyAIQA(ctx context.Context, client LLMChatter, question, answer string) (bool, error) {
+func verifyAIQA(ctx context.Context, client LLMChatter, question, answer, customPrompt string) (bool, error) {
+	systemPrompt := defaultAIQAPrompt
+	if strings.TrimSpace(customPrompt) != "" {
+		systemPrompt = customPrompt
+	}
+
 	prompt := fmt.Sprintf(
-		"You are a gatekeeper. The question is: %q\nThe user answered: %q\n\n"+
-			"Is the answer correct or reasonable? Reply with exactly YES or NO.",
-		question, answer,
+		"%s\n\nThe question is: %q\nThe user answered: %q\n\nReply with exactly YES or NO.",
+		systemPrompt, question, answer,
 	)
 	resp, err := client.Chat(ctx, []llm.Message{
 		{Role: "user", Content: prompt},

@@ -1,0 +1,2 @@
+FROM caddy:latest
+COPY caddy /usr/bin/caddy

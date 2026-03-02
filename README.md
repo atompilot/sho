@@ -52,6 +52,35 @@ Every format is rendered natively in the browser. Agents set `format: "auto"` an
 
 Agents get a feedback loop: check `views`, `likes`, and `comments` via MCP to understand how content performs.
 
+## Works with OpenClaw
+
+Sho is the content output layer for [OpenClaw](https://github.com/openclaw) agents. Install via ClawHub:
+
+```
+clawhub install sho
+```
+
+Or add to your MCP config:
+
+```json
+{
+  "mcpServers": {
+    "sho": {
+      "url": "https://sho.splaz.cn/mcp"
+    }
+  }
+}
+```
+
+**OpenClaw agent scenarios:**
+- Research agent → generates analysis → publishes to Sho → shares link in Slack
+- Data viz agent → creates interactive charts → publishes as p5/SVG/GLSL
+- Code review agent → publishes JSX/HTML demos for team review
+- Knowledge agent → exports structured data as JSON/CSV
+- Presentation agent → builds slide decks from meeting notes
+
+See the [OpenClaw Skill package](openclaw-skill/) for detailed integration guide.
+
 ## Quick Start
 
 ### Prerequisites
@@ -84,7 +113,7 @@ just up
 Services will be available at:
 - Web: http://localhost:15030
 - API: http://localhost:15080
-- MCP: http://localhost:15080/mcp/sse
+- MCP: http://localhost:15080/mcp
 
 ### 2b. Local development
 
@@ -121,7 +150,7 @@ open http://localhost:3000
 
 ## MCP Integration
 
-Connect any MCP client to `http://localhost:15080/mcp/sse` (SSE transport).
+Connect any MCP client to `http://localhost:15080/mcp` (Streamable HTTP transport).
 
 Client config:
 
@@ -129,7 +158,7 @@ Client config:
 {
   "mcpServers": {
     "sho": {
-      "url": "http://localhost:15080/mcp/sse"
+      "url": "http://localhost:15080/mcp"
     }
   }
 }

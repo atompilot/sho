@@ -3,6 +3,9 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
+import { motion, AnimatePresence } from 'framer-motion'
+import { CaretDownIcon } from '@phosphor-icons/react'
+import { StaggerContainer, StaggerItem, FadeIn } from '@/components/ui/MotionWrapper'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:15080'
 
@@ -21,8 +24,7 @@ function timeAgo(dateStr: string): string {
   if (mins < 60) return `${mins}m ago`
   const hours = Math.floor(mins / 60)
   if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  return `${days}d ago`
+  return `${Math.floor(hours / 24)}d ago`
 }
 
 function formatDate(dateStr: string): string {
@@ -54,93 +56,99 @@ export default function EditHistoryPage() {
 
   if (loading) {
     return (
-      <main className="min-h-screen flex items-center justify-center">
-        <span className="text-gray-400 text-sm">Loading...</span>
+      <main className="min-h-[100dvh] flex items-center justify-center bg-white">
+        <div className="skeleton h-4 w-24" />
       </main>
     )
   }
 
   return (
-    <main className="min-h-screen flex flex-col items-center px-4 py-16">
-      <div className="w-full max-w-2xl">
-        <div className="flex items-center gap-4 text-sm text-gray-400 mb-4">
-          <Link href={`/${slug}`} className="hover:text-gray-600 transition-colors">&larr; View post</Link>
-          <span className="text-gray-300">|</span>
-          <Link href={`/edit/${slug}`} className="hover:text-gray-600 transition-colors">Back to editor</Link>
-        </div>
+    <main className="min-h-[100dvh] flex flex-col items-center px-4 py-16 bg-white">
+      <StaggerContainer className="w-full max-w-2xl">
+        <StaggerItem>
+          <div className="flex items-center gap-4 text-sm text-slate-400 mb-4">
+            <Link href={`/${slug}`} className="hover:text-slate-600 transition-colors">View post</Link>
+            <span className="text-slate-200">|</span>
+            <Link href={`/edit/${slug}`} className="hover:text-slate-600 transition-colors">Back to editor</Link>
+          </div>
 
-        <h1 className="text-2xl font-bold tracking-tight mb-2">
-          Edit History <span className="text-gray-400">/{slug}</span>
-        </h1>
-        <p className="text-sm text-gray-400 mb-8">
-          {total} {total === 1 ? 'version' : 'versions'}
-        </p>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900 mb-2">
+            Edit History <span className="text-slate-400">/{slug}</span>
+          </h1>
+          <p className="text-sm text-slate-400 mb-8">
+            {total} {total === 1 ? 'version' : 'versions'}
+          </p>
+        </StaggerItem>
 
         {versions.length === 0 ? (
-          <div className="text-center py-16">
-            <p className="text-gray-400 text-sm">No edit history yet</p>
-          </div>
+          <FadeIn className="text-center py-16">
+            <p className="text-slate-400 text-sm">No edit history yet</p>
+          </FadeIn>
         ) : (
           <div className="space-y-3">
             {versions.map((v, idx) => (
-              <div
-                key={v.id}
-                className="border border-gray-200 rounded-xl overflow-hidden transition-all"
-              >
-                <button
-                  type="button"
-                  onClick={() => setExpandedId(expandedId === v.id ? null : v.id)}
-                  className="w-full text-left px-5 py-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    {/* Timeline dot */}
-                    <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
-                      idx === 0 ? 'bg-black' : 'bg-gray-300'
-                    }`} />
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium" title={formatDate(v.created_at)}>
-                          {timeAgo(v.created_at)}
-                        </span>
-                        {idx === 0 && (
-                          <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">
-                            Latest
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        {v.edited_by || 'anonymous'}
-                        {' · '}
-                        {v.content.length.toLocaleString()} chars
-                      </p>
-                    </div>
-                  </div>
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    className={`text-gray-400 transition-transform ${expandedId === v.id ? 'rotate-180' : ''}`}
+              <StaggerItem key={v.id}>
+                <div className="border border-slate-200 rounded-xl overflow-hidden transition-all hover:border-slate-300">
+                  <button
+                    type="button"
+                    onClick={() => setExpandedId(expandedId === v.id ? null : v.id)}
+                    className="w-full text-left px-5 py-4 flex items-center justify-between hover:bg-slate-50 transition-colors"
                   >
-                    <polyline points="6 9 12 15 18 9" />
-                  </svg>
-                </button>
+                    <div className="flex items-center gap-3">
+                      {/* Timeline dot */}
+                      <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                        idx === 0 ? 'bg-slate-800' : 'bg-slate-300'
+                      }`} />
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium text-slate-900" title={formatDate(v.created_at)}>
+                            {timeAgo(v.created_at)}
+                          </span>
+                          {idx === 0 && (
+                            <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-medium">
+                              Latest
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          {v.edited_by || 'anonymous'}
+                          {' · '}
+                          {v.content.length.toLocaleString()} chars
+                        </p>
+                      </div>
+                    </div>
+                    <motion.div
+                      animate={{ rotate: expandedId === v.id ? 180 : 0 }}
+                      transition={{ duration: 0.2 }}
+                    >
+                      <CaretDownIcon size={16} className="text-slate-400" />
+                    </motion.div>
+                  </button>
 
-                {expandedId === v.id && (
-                  <div className="border-t border-gray-100 px-5 py-4 bg-gray-50">
-                    <pre className="text-xs font-mono text-gray-700 whitespace-pre-wrap break-words max-h-96 overflow-auto">
-                      {v.content}
-                    </pre>
-                    <p className="text-xs text-gray-400 mt-3">{formatDate(v.created_at)}</p>
-                  </div>
-                )}
-              </div>
+                  <AnimatePresence>
+                    {expandedId === v.id && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+                        className="overflow-hidden"
+                      >
+                        <div className="border-t border-slate-100 px-5 py-4 bg-slate-50">
+                          <pre className="text-xs font-mono text-slate-700 whitespace-pre-wrap break-words max-h-96 overflow-auto leading-relaxed">
+                            {v.content}
+                          </pre>
+                          <p className="text-xs text-slate-400 mt-3">{formatDate(v.created_at)}</p>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </StaggerItem>
             ))}
           </div>
         )}
-      </div>
+      </StaggerContainer>
     </main>
   )
 }
