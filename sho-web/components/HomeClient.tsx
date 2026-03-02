@@ -105,6 +105,25 @@ function InfoRow({ label, value, variant }: { label: string; value: string; vari
   )
 }
 
+function CopyCommand({ command, badge, label }: { command: string; badge: string; label?: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <div>
+      <button
+        onClick={() => { navigator.clipboard.writeText(command); setCopied(true); setTimeout(() => setCopied(false), 1500) }}
+        className="inline-flex items-center gap-1.5 text-xs text-slate-300 hover:text-slate-500 transition-colors"
+      >
+        <span className="text-[10px] bg-orange-50 text-orange-400 rounded px-1.5 py-0.5 font-medium tracking-wider">{badge}</span>
+        {copied ? (
+          <span className="text-emerald-500">Copied!</span>
+        ) : (
+          <span>{label || command}</span>
+        )}
+      </button>
+    </div>
+  )
+}
+
 function CopyAllButton({ title, link, editPassword, viewPassword }: { title?: string; link: string; editPassword?: string; viewPassword?: string }) {
   const [copied, setCopied] = useState(false)
   const copyAll = () => {
@@ -773,17 +792,7 @@ export default function HomeClient({ posts }: { posts: Post[] }) {
                 <span className="text-[10px] bg-slate-100 text-slate-400 rounded px-1.5 py-0.5 font-medium uppercase tracking-wider">AI</span>
                 Agents can publish via API & MCP
               </a>
-              <div>
-                <a
-                  href="https://github.com/atompilot/sho/tree/master/openclaw-skill"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-xs text-slate-300 hover:text-slate-500 transition-colors"
-                >
-                  <span className="text-[10px] bg-orange-50 text-orange-400 rounded px-1.5 py-0.5 font-medium tracking-wider">OpenClaw</span>
-                  Install: clawhub install sho
-                </a>
-              </div>
+              <CopyCommand command={`{"mcpServers":{"sho":{"url":"${window.location.origin}/mcp"}}}`} badge="MCP" label="Copy MCP config" />
             </div>
           </div>
         </div>

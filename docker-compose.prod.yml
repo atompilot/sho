@@ -38,7 +38,7 @@ services:
     restart: unless-stopped
     environment:
       API_URL: http://sho-api:15080
-      NEXT_PUBLIC_API_URL: https://sho.splaz.cn:15443
+      NEXT_PUBLIC_API_URL: https://sho.splaz.cn
     depends_on:
       - sho-api
 
