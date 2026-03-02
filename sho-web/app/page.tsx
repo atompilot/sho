@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import HomeClient from '@/components/HomeClient'
 
 interface Post {

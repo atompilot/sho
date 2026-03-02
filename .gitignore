@@ -13,5 +13,9 @@ sho-web/.next/
 sho-api/.next/
 sho-web/.env.local
 
+# Deploy
+deploy/
+docker-compose.prod.yml
+
 # Project
 references/

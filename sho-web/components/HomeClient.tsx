@@ -105,22 +105,115 @@ function InfoRow({ label, value, variant }: { label: string; value: string; vari
   )
 }
 
-function CopyCommand({ command, badge, label }: { command: string; badge: string; label?: string }) {
-  const [copied, setCopied] = useState(false)
+function AgentSetupButton() {
+  const [open, setOpen] = useState(false)
+  const [copiedPrompt, setCopiedPrompt] = useState(false)
+  const [copiedConfig, setCopiedConfig] = useState(false)
+
+  const origin = typeof window !== 'undefined' ? window.location.origin : ''
+  const prompt = `Read ${origin}/skill.md and follow the instructions to publish content via Sho.`
+  const mcpConfig = JSON.stringify({ mcpServers: { sho: { url: `${origin}/mcp` } } }, null, 2)
+
+  const copyPrompt = () => { navigator.clipboard.writeText(prompt); setCopiedPrompt(true); setTimeout(() => setCopiedPrompt(false), 1500) }
+  const copyConfig = () => { navigator.clipboard.writeText(mcpConfig); setCopiedConfig(true); setTimeout(() => setCopiedConfig(false), 1500) }
+
   return (
-    <div>
+    <>
       <button
-        onClick={() => { navigator.clipboard.writeText(command); setCopied(true); setTimeout(() => setCopied(false), 1500) }}
-        className="inline-flex items-center gap-1.5 text-xs text-slate-300 hover:text-slate-500 transition-colors"
+        onClick={() => setOpen(true)}
+        className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-600 border border-slate-200 hover:border-slate-300 rounded-lg px-3 py-1.5 transition-all"
       >
-        <span className="text-[10px] bg-orange-50 text-orange-400 rounded px-1.5 py-0.5 font-medium tracking-wider">{badge}</span>
-        {copied ? (
-          <span className="text-emerald-500">Copied!</span>
-        ) : (
-          <span>{label || command}</span>
-        )}
+        <span className="text-[10px] bg-orange-50 text-orange-500 rounded px-1.5 py-0.5 font-medium tracking-wider">Agent</span>
+        Connect AI Agent
       </button>
-    </div>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4"
+            onClick={(e) => { if (e.target === e.currentTarget) setOpen(false) }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+              className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden"
+            >
+              <div className="p-6">
+                <h2 className="text-lg font-semibold text-slate-900 text-center mb-1">Connect AI Agent</h2>
+                <p className="text-sm text-slate-500 text-center mb-5">Choose how to connect your AI agent to Sho</p>
+
+                {/* Option 1: Prompt */}
+                <div className="mb-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xs font-semibold text-slate-500 bg-slate-100 rounded px-2 py-0.5">1</span>
+                    <span className="text-sm font-medium text-slate-700">Send this prompt to your agent</span>
+                  </div>
+                  <div
+                    onClick={copyPrompt}
+                    className="bg-slate-50 border border-slate-200 rounded-xl p-3 cursor-pointer hover:border-slate-300 hover:bg-slate-100/50 transition-all group"
+                  >
+                    <code className="text-sm text-slate-700 leading-relaxed block">{prompt}</code>
+                    <div className="flex justify-end mt-2">
+                      <span className={`text-xs transition-colors ${copiedPrompt ? 'text-emerald-500' : 'text-slate-400 group-hover:text-slate-500'}`}>
+                        {copiedPrompt ? 'Copied!' : 'Click to copy'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Divider */}
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="flex-1 h-px bg-slate-100" />
+                  <span className="text-xs text-slate-400">or</span>
+                  <div className="flex-1 h-px bg-slate-100" />
+                </div>
+
+                {/* Option 2: MCP Config */}
+                <div className="mb-5">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xs font-semibold text-slate-500 bg-slate-100 rounded px-2 py-0.5">2</span>
+                    <span className="text-sm font-medium text-slate-700">Add MCP server config</span>
+                  </div>
+                  <div
+                    onClick={copyConfig}
+                    className="bg-slate-50 border border-slate-200 rounded-xl p-3 cursor-pointer hover:border-slate-300 hover:bg-slate-100/50 transition-all group"
+                  >
+                    <pre className="text-sm text-slate-700 font-mono leading-relaxed overflow-x-auto">{mcpConfig}</pre>
+                    <div className="flex justify-end mt-2">
+                      <span className={`text-xs transition-colors ${copiedConfig ? 'text-emerald-500' : 'text-slate-400 group-hover:text-slate-500'}`}>
+                        {copiedConfig ? 'Copied!' : 'Click to copy'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Steps */}
+                <div className="space-y-1.5 text-sm text-slate-500">
+                  <p><span className="font-semibold text-slate-600">1.</span> Copy the prompt or config above</p>
+                  <p><span className="font-semibold text-slate-600">2.</span> Paste it in your AI agent (Claude, Cursor, etc.)</p>
+                  <p><span className="font-semibold text-slate-600">3.</span> Start publishing with <code className="text-xs bg-slate-100 px-1.5 py-0.5 rounded">sho_publish</code></p>
+                </div>
+              </div>
+
+              <div className="border-t border-slate-100 px-6 py-3 flex justify-end">
+                <button
+                  onClick={() => setOpen(false)}
+                  className="text-sm text-slate-500 hover:text-slate-700 transition-colors px-3 py-1.5"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
   )
 }
 
@@ -315,7 +408,7 @@ export default function HomeClient({ posts }: { posts: Post[] }) {
               {title.trim() && (
                 <InfoRow label="Title" value={title.trim()} />
               )}
-              <InfoRow label="Link" value={`${window.location.origin}/${result.slug}`} />
+              <InfoRow label="Link" value={`${typeof window !== 'undefined' ? window.location.origin : ''}/${result.slug}`} />
               {result.edit_password && (
                 <InfoRow label="Edit Password" value={result.edit_password} variant="blue" />
               )}
@@ -332,7 +425,7 @@ export default function HomeClient({ posts }: { posts: Post[] }) {
 
             <CopyAllButton
               title={title.trim()}
-              link={`${window.location.origin}/${result.slug}`}
+              link={`${typeof window !== 'undefined' ? window.location.origin : ''}/${result.slug}`}
               editPassword={result.edit_password}
               viewPassword={result.view_password}
             />
@@ -782,17 +875,17 @@ export default function HomeClient({ posts }: { posts: Post[] }) {
             )}
 
             {/* AI hint */}
-            <div className="mt-8 space-y-2">
+            <div className="mt-8 flex flex-wrap gap-2">
               <a
                 href="/skill.md"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-xs text-slate-300 hover:text-slate-500 transition-colors"
+                className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-600 border border-slate-200 hover:border-slate-300 rounded-lg px-3 py-1.5 transition-all"
               >
-                <span className="text-[10px] bg-slate-100 text-slate-400 rounded px-1.5 py-0.5 font-medium uppercase tracking-wider">AI</span>
-                Agents can publish via API & MCP
+                <span className="text-[10px] bg-slate-100 text-slate-500 rounded px-1.5 py-0.5 font-medium uppercase tracking-wider">AI</span>
+                skill.md
               </a>
-              <CopyCommand command={`{"mcpServers":{"sho":{"url":"${window.location.origin}/mcp"}}}`} badge="MCP" label="Copy MCP config" />
+              <AgentSetupButton />
             </div>
           </div>
         </div>

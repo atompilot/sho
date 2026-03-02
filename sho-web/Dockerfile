@@ -21,6 +21,7 @@ RUN addgroup --system --gid 1001 nodejs && \
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
+RUN mkdir -p .next/cache && chown -R nextjs:nodejs .next/cache
 USER nextjs
 EXPOSE 3000
 ENV PORT=3000
