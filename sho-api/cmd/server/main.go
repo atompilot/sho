@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -140,12 +141,26 @@ func main() {
 }
 
 func corsMiddleware(next http.Handler) http.Handler {
-	allowedOrigin := os.Getenv("CORS_ALLOW_ORIGIN")
-	if allowedOrigin == "" {
-		allowedOrigin = "*"
+	raw := os.Getenv("CORS_ALLOW_ORIGIN")
+	if raw == "" {
+		raw = "*"
+	}
+	origins := strings.Split(raw, ",")
+	for i := range origins {
+		origins[i] = strings.TrimSpace(origins[i])
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
+		origin := r.Header.Get("Origin")
+		allowed := origins[0]
+		if len(origins) > 1 && origin != "" {
+			for _, o := range origins {
+				if o == origin {
+					allowed = o
+					break
+				}
+			}
+		}
+		w.Header().Set("Access-Control-Allow-Origin", allowed)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		if r.Method == http.MethodOptions {
