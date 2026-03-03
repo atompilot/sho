@@ -74,6 +74,7 @@ func (h *PostHandler) Create(w http.ResponseWriter, r *http.Request) {
 		ViewQAPrompt   *string          `json:"view_qa_prompt"`
 		ViewQAAnswer   *string          `json:"view_qa_answer"`
 		Unlisted       *bool            `json:"unlisted"`
+		Author         *string          `json:"author"`
 		AgentID        *string          `json:"agent_id"`
 		AgentName      *string          `json:"agent_name"`
 		WebhookURL     *string          `json:"webhook_url"`
@@ -84,6 +85,10 @@ func (h *PostHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Content == "" {
 		writeError(w, http.StatusBadRequest, "content is required")
+		return
+	}
+	if req.Author == nil || strings.TrimSpace(*req.Author) == "" {
+		writeError(w, http.StatusBadRequest, "author is required")
 		return
 	}
 	if len(req.Content) > maxContentBytes {
@@ -121,6 +126,7 @@ func (h *PostHandler) Create(w http.ResponseWriter, r *http.Request) {
 		ViewQAQuestion: req.ViewQAQuestion,
 		ViewQAPrompt:   req.ViewQAPrompt,
 		ViewQAAnswer:   req.ViewQAAnswer,
+		Author:         req.Author,
 		AgentID:        req.AgentID,
 		AgentName:      req.AgentName,
 		WebhookURL:     req.WebhookURL,
@@ -211,6 +217,9 @@ func (h *PostHandler) Get(w http.ResponseWriter, r *http.Request) {
 		}
 		if post.ViewQAQuestion != nil {
 			resp["view_qa_question"] = *post.ViewQAQuestion
+		}
+		if post.Author != nil {
+			resp["author"] = *post.Author
 		}
 		if post.AgentID != nil {
 			resp["agent_id"] = *post.AgentID
@@ -557,6 +566,16 @@ func (h *PostHandler) VerifyView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *PostHandler) RandomAuthor(w http.ResponseWriter, r *http.Request) {
+	name, err := h.svc.GenerateRandomAuthor(r.Context())
+	if err != nil {
+		log.Printf("generate random author: %v", err)
+		writeError(w, http.StatusInternalServerError, "failed to generate author")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"author": name})
 }
 
 func (h *PostHandler) VerifyMasterPassword(w http.ResponseWriter, r *http.Request) {

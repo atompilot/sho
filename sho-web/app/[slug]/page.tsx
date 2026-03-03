@@ -12,6 +12,7 @@ interface Post {
   policy: string
   view_policy?: 'open' | 'password' | 'human-qa' | 'ai-qa'
   view_qa_question?: string
+  author?: string
   views: number
   likes: number
   shares: number

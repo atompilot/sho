@@ -76,14 +76,16 @@ export default function ExplorePage() {
   }, [buildUrl])
 
   useEffect(() => {
-    fetchPosts('', sortMode, formatFilter)
-  }, [fetchPosts, sortMode, formatFilter])
-
-  useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => {
-      fetchPosts(query, sortMode, formatFilter)
-    }, 300)
+    if (query) {
+      // Debounce only when there's a search query
+      debounceRef.current = setTimeout(() => {
+        fetchPosts(query, sortMode, formatFilter)
+      }, 300)
+    } else {
+      // No query — fetch immediately (sort/format changes, initial load)
+      fetchPosts('', sortMode, formatFilter)
+    }
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }

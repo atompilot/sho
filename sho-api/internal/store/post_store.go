@@ -27,11 +27,11 @@ func (s *PostStore) Create(ctx context.Context, p *model.Post) error {
 	_, err := s.pool.Exec(ctx, `
 		INSERT INTO sho_posts (id, slug, title, content, content_length, format, policy, password, ai_review_prompt, edit_token,
 		                   view_policy, view_password, view_qa_question, view_qa_prompt, view_qa_answer, unlisted,
-		                   agent_id, agent_name, channel_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+		                   author, agent_id, agent_name, channel_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
 	`, p.ID, p.Slug, p.Title, p.Content, p.ContentLength, p.Format, p.Policy, p.Password, p.AIReviewPrompt, p.EditToken,
 		p.ViewPolicy, p.ViewPassword, p.ViewQAQuestion, p.ViewQAPrompt, p.ViewQAAnswer, p.Unlisted,
-		p.AgentID, p.AgentName, p.ChannelID)
+		p.Author, p.AgentID, p.AgentName, p.ChannelID)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
@@ -47,7 +47,7 @@ func (s *PostStore) GetBySlug(ctx context.Context, slug string) (*model.Post, er
 	err := s.pool.QueryRow(ctx, `
 		SELECT id, slug, title, ai_title, content, format, policy, password, ai_review_prompt, edit_token,
 		       view_policy, view_password, view_qa_question, view_qa_prompt, view_qa_answer, unlisted,
-		       agent_id, agent_name,
+		       author, agent_id, agent_name,
 		       views, likes, shares, last_viewed_at, created_at, updated_at,
 		       (SELECT COUNT(*) FROM sho_post_versions WHERE post_id = sho_posts.id) AS version_count
 		FROM sho_posts WHERE slug = $1 AND deleted_at IS NULL
@@ -55,7 +55,7 @@ func (s *PostStore) GetBySlug(ctx context.Context, slug string) (*model.Post, er
 		&p.ID, &p.Slug, &p.Title, &p.AITitle, &p.Content, &p.Format, &p.Policy,
 		&p.Password, &p.AIReviewPrompt, &p.EditToken,
 		&p.ViewPolicy, &p.ViewPassword, &p.ViewQAQuestion, &p.ViewQAPrompt, &p.ViewQAAnswer, &p.Unlisted,
-		&p.AgentID, &p.AgentName,
+		&p.Author, &p.AgentID, &p.AgentName,
 		&p.Views, &p.Likes, &p.Shares, &p.LastViewedAt, &p.CreatedAt, &p.UpdatedAt,
 		&p.VersionCount,
 	)
@@ -168,7 +168,7 @@ func scanPosts(rows interface {
 		p := &model.Post{}
 		if err := rows.Scan(&p.ID, &p.Slug, &p.Title, &p.AITitle, &p.Content, &p.Format,
 			&p.Policy, &p.ContentLength, &p.Views, &p.Likes, &p.Shares, &p.LastViewedAt, &p.CreatedAt, &p.UpdatedAt,
-			&p.AgentID, &p.AgentName); err != nil {
+			&p.Author, &p.AgentID, &p.AgentName); err != nil {
 			return nil, fmt.Errorf("scan post: %w", err)
 		}
 		posts = append(posts, p)
@@ -181,7 +181,7 @@ func (s *PostStore) ListRecent(ctx context.Context, limit, offset int, format st
 	args := append([]any{limit, offset}, fArgs...)
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, slug, title, ai_title, content, format, policy, content_length, views, likes, shares, last_viewed_at, created_at, updated_at,
-		        agent_id, agent_name
+		        author, agent_id, agent_name
 		 FROM sho_posts WHERE deleted_at IS NULL AND unlisted = FALSE`+fClause+`
 		 ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
 		args...)
@@ -210,7 +210,7 @@ func (s *PostStore) ListRecommended(ctx context.Context, limit, offset int, form
 	args := append([]any{fetchLimit, offset}, fArgs...)
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, slug, title, ai_title, content, format, policy, content_length, views, likes, shares, last_viewed_at, created_at, updated_at,
-		        agent_id, agent_name
+		        author, agent_id, agent_name
 		 FROM sho_posts WHERE deleted_at IS NULL AND unlisted = FALSE`+fClause+`
 		 ORDER BY`+recommendScore+` DESC
 		 LIMIT $1 OFFSET $2`,
@@ -227,7 +227,7 @@ func (s *PostStore) Search(ctx context.Context, query string, limit, offset int,
 	args := append([]any{pattern, limit, offset}, fArgs...)
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, slug, title, ai_title, content, format, policy, content_length, views, likes, shares, last_viewed_at, created_at, updated_at,
-		        agent_id, agent_name
+		        author, agent_id, agent_name
 		 FROM sho_posts WHERE deleted_at IS NULL AND unlisted = FALSE AND (title ILIKE $1 OR ai_title ILIKE $1 OR content ILIKE $1)`+fClause+`
 		 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
 		args...)
@@ -441,7 +441,7 @@ func (s *PostStore) GetComments(ctx context.Context, slug string, limit int) ([]
 func (s *PostStore) ListByAgent(ctx context.Context, agentID string, limit, offset int) ([]*model.Post, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, slug, title, ai_title, content, format, policy, content_length, views, likes, shares, last_viewed_at, created_at, updated_at,
-		        agent_id, agent_name
+		        author, agent_id, agent_name
 		 FROM sho_posts WHERE deleted_at IS NULL AND agent_id = $1
 		 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
 		agentID, limit, offset)
@@ -474,6 +474,24 @@ func (s *PostStore) ListPendingAITitle(ctx context.Context, batchSize int) ([]*m
 		posts = append(posts, p)
 	}
 	return posts, rows.Err()
+}
+
+// ListDistinctAuthors returns all unique non-null author names.
+func (s *PostStore) ListDistinctAuthors(ctx context.Context) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `SELECT DISTINCT author FROM sho_posts WHERE author IS NOT NULL AND deleted_at IS NULL`)
+	if err != nil {
+		return nil, fmt.Errorf("list distinct authors: %w", err)
+	}
+	defer rows.Close()
+	var authors []string
+	for rows.Next() {
+		var a string
+		if err := rows.Scan(&a); err != nil {
+			return nil, fmt.Errorf("scan author: %w", err)
+		}
+		authors = append(authors, a)
+	}
+	return authors, rows.Err()
 }
 
 // UpdateAITitle sets the AI-generated title for a post.

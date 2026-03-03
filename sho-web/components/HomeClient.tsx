@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useCallback, useMemo } from 'react'
+import React, { useState, useCallback, useMemo, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 import Link from 'next/link'
@@ -257,6 +257,41 @@ interface PublishResult {
 export default function HomeClient({ posts }: { posts: Post[] }) {
   const router = useRouter()
 
+  // Author
+  const [author, setAuthor] = useState('')
+  useEffect(() => {
+    const saved = localStorage.getItem('sho:author')
+    if (saved) {
+      setAuthor(saved)
+    } else {
+      fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/authors/random`)
+        .then(r => r.json())
+        .then(data => {
+          if (data.author) {
+            setAuthor(data.author)
+            localStorage.setItem('sho:author', data.author)
+          }
+        })
+        .catch(() => {})
+    }
+  }, [])
+
+  function updateAuthor(value: string) {
+    setAuthor(value)
+    localStorage.setItem('sho:author', value)
+  }
+
+  async function refreshAuthor() {
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/v1/authors/random`)
+      const data = await res.json()
+      if (data.author) {
+        setAuthor(data.author)
+        localStorage.setItem('sho:author', data.author)
+      }
+    } catch {}
+  }
+
   // Content
   const [content, setContent] = useState('')
   const [title, setTitle] = useState('')
@@ -308,7 +343,7 @@ export default function HomeClient({ posts }: { posts: Post[] }) {
   }
 
   async function handleSubmit() {
-    if (!content.trim() || overLimit) return
+    if (!content.trim() || !author.trim() || overLimit) return
     setLoading(true)
     setError('')
 
@@ -318,6 +353,7 @@ export default function HomeClient({ posts }: { posts: Post[] }) {
       policy: pol,
       view_policy: viewPol,
       unlisted,
+      author: author.trim(),
     }
     if (title.trim()) body.title = title.trim()
     if (pol === 'password') body.password = editPassword
@@ -360,7 +396,7 @@ export default function HomeClient({ posts }: { posts: Post[] }) {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [content, overLimit, format, pol, editPassword, aiPrompt, viewPol, viewPassword, viewQuestion, viewQAPrompt, viewAnswer, unlisted, title]
+    [content, overLimit, format, pol, editPassword, aiPrompt, viewPol, viewPassword, viewQuestion, viewQAPrompt, viewAnswer, unlisted, title, author]
   )
 
   function resetForm() {
@@ -532,6 +568,31 @@ export default function HomeClient({ posts }: { posts: Post[] }) {
                 One API call. Any format.
               </p>
             </FadeIn>
+
+            {/* Author input */}
+            <div
+              className={`overflow-hidden transition-all duration-300 ease-out ${
+                hasContent ? 'max-h-16 opacity-100 mb-3' : 'max-h-0 opacity-0 mb-0'
+              }`}
+            >
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Author"
+                  value={author}
+                  onChange={(e) => updateAuthor(e.target.value)}
+                  className="flex-1 border border-slate-200 rounded-xl px-5 py-3 text-base focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 hover:border-slate-300 transition-all placeholder:text-slate-300"
+                />
+                <button
+                  type="button"
+                  onClick={refreshAuthor}
+                  className="border border-slate-200 rounded-xl px-3 py-3 text-slate-500 hover:text-slate-700 hover:border-slate-300 transition-all"
+                  title="Generate new author name"
+                >
+                  <ArrowClockwiseIcon size={16} />
+                </button>
+              </div>
+            </div>
 
             {/* Title input */}
             <div
@@ -818,7 +879,7 @@ export default function HomeClient({ posts }: { posts: Post[] }) {
                         </button>
                         <motion.button
                           type="button"
-                          disabled={loading || !hasContent || overLimit}
+                          disabled={loading || !hasContent || !author.trim() || overLimit}
                           onClick={handleSubmit}
                           whileTap={{ scale: 0.98 }}
                           className="bg-slate-800 text-white rounded-xl px-6 py-2.5 text-sm font-medium disabled:opacity-30 hover:bg-slate-900 hover:shadow-lg hover:shadow-slate-300/30 transition-all duration-200"

@@ -28,6 +28,7 @@ interface Post {
   policy: string
   view_policy?: 'open' | 'password' | 'human-qa' | 'ai-qa'
   view_qa_question?: string
+  author?: string
   agent_id?: string
   agent_name?: string
   views: number
@@ -192,13 +193,13 @@ export function PostViewer({ post, initialLikes, initialCommentsCount }: {
         const { x, y } = JSON.parse(saved)
         setPos({
           x: Math.min(x, window.innerWidth - 60),
-          y: Math.min(y, window.innerHeight - 420),
+          y: Math.min(y, window.innerHeight - 480),
         })
       } catch {
-        setPos({ x: window.innerWidth - 72, y: window.innerHeight - 440 })
+        setPos({ x: window.innerWidth - 72, y: window.innerHeight - 500 })
       }
     } else {
-      setPos({ x: window.innerWidth - 72, y: window.innerHeight - 440 })
+      setPos({ x: window.innerWidth - 72, y: window.innerHeight - 500 })
     }
     setMounted(true)
 
@@ -243,7 +244,7 @@ export function PostViewer({ post, initialLikes, initialCommentsCount }: {
       if (Math.abs(dx) > 4 || Math.abs(dy) > 4) didDrag.current = true
       setPos({
         x: clamp(origin.current.btnX + dx, 8, window.innerWidth - 60),
-        y: clamp(origin.current.btnY + dy, 8, window.innerHeight - 420),
+        y: clamp(origin.current.btnY + dy, 8, window.innerHeight - 480),
       })
     }
 
@@ -492,6 +493,18 @@ export function PostViewer({ post, initialLikes, initialCommentsCount }: {
           onMouseDown={(e) => { startDrag(e.clientX, e.clientY); e.preventDefault() }}
           onTouchStart={(e) => startDrag(e.touches[0].clientX, e.touches[0].clientY)}
         >
+          {/* Author & time */}
+          {(post.author || post.created_at) && (
+            <>
+              <div className="w-[52px] flex flex-col items-center justify-center gap-0.5 py-2.5 px-1">
+                {post.author && (
+                  <span className="text-[9px] leading-tight text-white/60 text-center break-words max-w-full">{post.author}</span>
+                )}
+                <span className="text-[9px] leading-tight text-white/35">{timeAgo(post.created_at)}</span>
+              </div>
+              <Divider />
+            </>
+          )}
           <ActionBtn
             icon={<EyeIcon size={18} weight="regular" />}
             count={views}

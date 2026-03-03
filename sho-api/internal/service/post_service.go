@@ -74,6 +74,7 @@ type CreatePostInput struct {
 	ViewQAPrompt   *string
 	ViewQAAnswer   *string
 	Unlisted       bool
+	Author         *string
 	AgentID        *string
 	AgentName      *string
 	WebhookURL     *string
@@ -187,6 +188,7 @@ func (s *PostService) CreatePost(ctx context.Context, input CreatePostInput) (*m
 		ViewQAPrompt:   input.ViewQAPrompt,
 		ViewQAAnswer:   input.ViewQAAnswer,
 		Unlisted:       input.Unlisted,
+		Author:         input.Author,
 		AgentID:        input.AgentID,
 		AgentName:      input.AgentName,
 		ChannelID:      channelID,
@@ -459,6 +461,63 @@ func (s *PostService) SearchPosts(ctx context.Context, query string, limit, offs
 		return s.store.ListRecent(ctx, limit, offset, format)
 	}
 	return s.store.Search(ctx, query, limit, offset, format)
+}
+
+// --- Random Author Generation ------------------------------------------------
+
+var authorAdjectives = []string{
+	"Cosmic", "Silent", "Brave", "Swift", "Golden",
+	"Amber", "Neon", "Lunar", "Solar", "Vivid",
+	"Crystal", "Shadow", "Stellar", "Frost", "Ember",
+	"Velvet", "Crimson", "Azure", "Jade", "Silver",
+	"Mystic", "Radiant", "Arctic", "Blazing", "Gentle",
+	"Noble", "Rustic", "Bright", "Quiet", "Wild",
+	"Serene", "Bold", "Misty", "Stormy", "Dusk",
+	"Dawn", "Iron", "Coral", "Maple", "Thunder",
+	"Ocean", "Pixel", "Prism", "Nimble", "Marble",
+	"Hollow", "Rapid", "Astral", "Moss", "Silk",
+}
+
+var authorNouns = []string{
+	"Panda", "Phoenix", "Fox", "Owl", "Wolf",
+	"Falcon", "Dolphin", "Tiger", "Eagle", "Raven",
+	"Otter", "Lynx", "Crane", "Hawk", "Bear",
+	"Heron", "Mantis", "Gecko", "Parrot", "Shark",
+	"Moth", "Coral", "Bison", "Coyote", "Jaguar",
+	"Puma", "Robin", "Finch", "Badger", "Viper",
+	"Swan", "Stag", "Elk", "Hare", "Wasp",
+	"Newt", "Wren", "Lark", "Ibis", "Kite",
+	"Toad", "Crab", "Mole", "Seal", "Dove",
+	"Frog", "Goat", "Bat", "Bee", "Ant",
+}
+
+// GenerateRandomAuthor creates a random "Adjective Noun" author name,
+// checking against existing authors to avoid duplicates (max 5 retries).
+func (s *PostService) GenerateRandomAuthor(ctx context.Context) (string, error) {
+	existing, err := s.store.ListDistinctAuthors(ctx)
+	if err != nil {
+		return "", fmt.Errorf("list authors: %w", err)
+	}
+	taken := make(map[string]bool, len(existing))
+	for _, a := range existing {
+		taken[a] = true
+	}
+
+	buf := make([]byte, 2)
+	var last string
+	for range 5 {
+		if _, err := rand.Read(buf); err != nil {
+			return "", err
+		}
+		adj := authorAdjectives[int(buf[0])%len(authorAdjectives)]
+		noun := authorNouns[int(buf[1])%len(authorNouns)]
+		last = adj + " " + noun
+		if !taken[last] {
+			return last, nil
+		}
+	}
+	// All attempts collided — return the last generated name anyway
+	return last, nil
 }
 
 func (s *PostService) LikePost(ctx context.Context, slug, fpHash string) (int, bool, error) {

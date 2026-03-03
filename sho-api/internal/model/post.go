@@ -65,6 +65,7 @@ type Post struct {
 	ViewQAPrompt   *string    `json:"-"`
 	ViewQAAnswer   *string    `json:"-"`
 	Unlisted       bool       `json:"unlisted"`
+	Author         *string    `json:"author,omitempty"`
 	AgentID        *string    `json:"agent_id,omitempty"`
 	AgentName      *string    `json:"agent_name,omitempty"`
 	ChannelID      *uuid.UUID `json:"channel_id,omitempty"`

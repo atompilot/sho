@@ -55,6 +55,10 @@ func publishTool() mcp.Tool {
 			mcp.Required(),
 			mcp.Description("The main body of the post (markdown, HTML, or plain text)."),
 		),
+		mcp.WithString("author",
+			mcp.Required(),
+			mcp.Description("Author name for the post (e.g. 'Cosmic Panda')."),
+		),
 		mcp.WithString("format",
 			mcp.Description("Content format: auto, markdown, html, txt, jsx (default: auto)."),
 		),
@@ -165,6 +169,10 @@ func publishHandler(svc *service.PostService, webhookStore *store.WebhookStore) 
 		if content == "" {
 			return mcp.NewToolResultError("content is required"), nil
 		}
+		author := req.GetString("author", "")
+		if author == "" {
+			return mcp.NewToolResultError("author is required"), nil
+		}
 
 		formatStr := req.GetString("format", "auto")
 		var fmt_ model.Format
@@ -216,6 +224,7 @@ func publishHandler(svc *service.PostService, webhookStore *store.WebhookStore) 
 			ViewPolicy: vp,
 		}
 
+		input.Author = &author
 		if title := req.GetString("title", ""); title != "" {
 			input.Title = &title
 		}

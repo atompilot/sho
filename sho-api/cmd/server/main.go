@@ -100,6 +100,7 @@ func main() {
 		r.Post("/posts/{slug}/comments", postHandler.CreateComment)
 		r.Post("/posts/{slug}/verify-view", postHandler.VerifyView)
 		r.Get("/posts/by-agent/{agent_id}", postHandler.ListByAgent)
+		r.Get("/authors/random", postHandler.RandomAuthor)
 		r.Post("/auth/verify-master", postHandler.VerifyMasterPassword)
 
 		// Channels
