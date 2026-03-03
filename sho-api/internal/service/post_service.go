@@ -84,6 +84,7 @@ type CreatePostInput struct {
 type UpdatePostInput struct {
 	Slug       string
 	Content    string
+	Title      *string
 	Credential string
 	EditedBy   string
 }
@@ -267,9 +268,11 @@ func (s *PostService) UpdatePost(ctx context.Context, input UpdatePostInput, llm
 		return fmt.Errorf("save version: %w", err)
 	}
 
-	// Re-extract title from new content.
+	// Use explicit title if provided; otherwise re-extract from content.
 	var title *string
-	if t := extractTitle(input.Content, post.Format); t != "" {
+	if input.Title != nil {
+		title = input.Title
+	} else if t := extractTitle(input.Content, post.Format); t != "" {
 		title = &t
 	}
 

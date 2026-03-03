@@ -10,6 +10,8 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:15080'
 
 interface PostData {
   slug: string
+  title?: string
+  ai_title?: string
   content: string
   format: string
   policy: string
@@ -23,6 +25,7 @@ export default function EditPostPage() {
   const slug = params.slug as string
 
   const [post, setPost] = useState<PostData | null>(null)
+  const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(true)
@@ -39,6 +42,7 @@ export default function EditPostPage() {
       })
       .then((data: PostData) => {
         setPost(data)
+        setTitle(data.title ?? data.ai_title ?? '')
         setContent(data.content ?? '')
       })
       .catch(() => setError('Failed to load post'))
@@ -86,7 +90,7 @@ export default function EditPostPage() {
       const res = await fetch(`${API_BASE}/api/v1/posts/${slug}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content, credential: getCredential() }),
+        body: JSON.stringify({ content, title: title.trim() || null, credential: getCredential() }),
       })
       if (!res.ok) {
         const data = await res.json().catch(() => ({ error: 'Failed to save' }))
@@ -141,6 +145,18 @@ export default function EditPostPage() {
         </StaggerItem>
 
         <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Title */}
+          <StaggerItem>
+            <label className="block text-sm font-medium text-slate-700 mb-2">Title</label>
+            <input
+              type="text"
+              placeholder="Title (optional)"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 hover:border-slate-300 transition-all"
+            />
+          </StaggerItem>
+
           {/* Content */}
           <StaggerItem>
             <label className="block text-sm font-medium text-slate-700 mb-2">Content</label>

@@ -17,6 +17,7 @@ function ManageContent({ slug }: ManageContentProps) {
   const [passwordInput, setPasswordInput] = useState('')
   const [authError, setAuthError] = useState('')
 
+  const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -72,6 +73,7 @@ function ManageContent({ slug }: ManageContentProps) {
         return r.json()
       })
       .then((d) => {
+        setTitle(d.title || d.ai_title || '')
         setContent(d.content || '')
         setLoading(false)
       })
@@ -88,7 +90,7 @@ function ManageContent({ slug }: ManageContentProps) {
       const res = await fetch(`${API_BASE}/api/v1/posts/${slug}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content, credential: masterPassword }),
+        body: JSON.stringify({ content, title: title.trim() || null, credential: masterPassword }),
       })
       const data = await res.json()
       setMsg(res.ok ? 'Saved!' : data.error || 'Save failed')
@@ -163,6 +165,13 @@ function ManageContent({ slug }: ManageContentProps) {
           Delete
         </button>
       </div>
+      <input
+        type="text"
+        placeholder="Title (optional)"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        className="w-full border rounded px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-black/20"
+      />
       <textarea
         value={content}
         onChange={(e) => setContent(e.target.value)}

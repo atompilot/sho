@@ -239,8 +239,9 @@ func (h *PostHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	slug := chi.URLParam(r, "slug")
 	var req struct {
-		Content    string `json:"content"`
-		Credential string `json:"credential"`
+		Content    string  `json:"content"`
+		Title      *string `json:"title"`
+		Credential string  `json:"credential"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -255,6 +256,7 @@ func (h *PostHandler) Update(w http.ResponseWriter, r *http.Request) {
 	err := h.svc.UpdatePost(r.Context(), service.UpdatePostInput{
 		Slug:       slug,
 		Content:    req.Content,
+		Title:      req.Title,
 		Credential: req.Credential,
 		EditedBy:   req.Credential,
 	}, h.llmClient)
