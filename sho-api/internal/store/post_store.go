@@ -168,7 +168,7 @@ func scanPosts(rows interface {
 		p := &model.Post{}
 		if err := rows.Scan(&p.ID, &p.Slug, &p.Title, &p.AITitle, &p.Content, &p.Format,
 			&p.Policy, &p.ContentLength, &p.Views, &p.Likes, &p.Shares, &p.RenderErrors, &p.LastViewedAt, &p.CreatedAt, &p.UpdatedAt,
-			&p.Author, &p.AgentID, &p.AgentName); err != nil {
+			&p.Author, &p.AgentID, &p.AgentName, &p.ViewPolicy, &p.ViewQAQuestion); err != nil {
 			return nil, fmt.Errorf("scan post: %w", err)
 		}
 		posts = append(posts, p)
@@ -181,7 +181,7 @@ func (s *PostStore) ListRecent(ctx context.Context, limit, offset int, format st
 	args := append([]any{limit, offset}, fArgs...)
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, slug, title, ai_title, content, format, policy, content_length, views, likes, shares, render_errors, last_viewed_at, created_at, updated_at,
-		        author, agent_id, agent_name
+		        author, agent_id, agent_name, view_policy, view_qa_question
 		 FROM sho_posts WHERE deleted_at IS NULL AND unlisted = FALSE`+fClause+`
 		 ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
 		args...)
@@ -227,7 +227,7 @@ func (s *PostStore) ListRecommended(ctx context.Context, limit, offset int, form
 	args := append([]any{fetchLimit, offset}, fArgs...)
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, slug, title, ai_title, content, format, policy, content_length, views, likes, shares, render_errors, last_viewed_at, created_at, updated_at,
-		        author, agent_id, agent_name
+		        author, agent_id, agent_name, view_policy, view_qa_question
 		 FROM sho_posts WHERE deleted_at IS NULL AND unlisted = FALSE`+fClause+`
 		 ORDER BY`+recommendScore+` DESC
 		 LIMIT $1 OFFSET $2`,
@@ -244,7 +244,7 @@ func (s *PostStore) Search(ctx context.Context, query string, limit, offset int,
 	args := append([]any{pattern, limit, offset}, fArgs...)
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, slug, title, ai_title, content, format, policy, content_length, views, likes, shares, render_errors, last_viewed_at, created_at, updated_at,
-		        author, agent_id, agent_name
+		        author, agent_id, agent_name, view_policy, view_qa_question
 		 FROM sho_posts WHERE deleted_at IS NULL AND unlisted = FALSE AND (title ILIKE $1 OR ai_title ILIKE $1 OR content ILIKE $1)`+fClause+`
 		 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
 		args...)
@@ -458,7 +458,7 @@ func (s *PostStore) GetComments(ctx context.Context, slug string, limit int) ([]
 func (s *PostStore) ListByAgent(ctx context.Context, agentID string, limit, offset int) ([]*model.Post, error) {
 	rows, err := s.pool.Query(ctx,
 		`SELECT id, slug, title, ai_title, content, format, policy, content_length, views, likes, shares, render_errors, last_viewed_at, created_at, updated_at,
-		        author, agent_id, agent_name
+		        author, agent_id, agent_name, view_policy, view_qa_question
 		 FROM sho_posts WHERE deleted_at IS NULL AND agent_id = $1
 		 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
 		agentID, limit, offset)

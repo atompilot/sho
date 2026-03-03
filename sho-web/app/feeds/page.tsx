@@ -1,4 +1,4 @@
-import { FeedsClient } from './FeedsClient'
+import { UnifiedFeedClient } from '@/components/UnifiedFeedClient'
 
 export const dynamic = 'force-dynamic'
 
@@ -8,5 +8,5 @@ export const metadata = {
 }
 
 export default function FeedsPage() {
-  return <FeedsClient />
+  return <UnifiedFeedClient />
 }

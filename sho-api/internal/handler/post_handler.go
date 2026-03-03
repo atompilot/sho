@@ -46,6 +46,20 @@ func NewPostHandler(svc *service.PostService, llmClient service.LLMChatter, wd *
 	return &PostHandler{svc: svc, llmClient: llmClient, webhookDisp: wd, webhookStore: ws, masterPassword: masterPassword}
 }
 
+// truncateProtectedContent replaces full content with a 200-rune preview
+// for posts that have a non-open view_policy, matching the Get handler behaviour.
+func truncateProtectedContent(posts []*model.Post) {
+	for _, p := range posts {
+		if p.ViewPolicy != model.ViewPolicyOpen {
+			runes := []rune(p.Content)
+			if len(runes) > 200 {
+				runes = runes[:200]
+			}
+			p.Content = string(runes)
+		}
+	}
+}
+
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -329,6 +343,7 @@ func (h *PostHandler) List(w http.ResponseWriter, r *http.Request) {
 	if posts == nil {
 		posts = []*model.Post{}
 	}
+	truncateProtectedContent(posts)
 	writeJSON(w, http.StatusOK, posts)
 }
 
@@ -346,6 +361,7 @@ func (h *PostHandler) ListRecommended(w http.ResponseWriter, r *http.Request) {
 	if posts == nil {
 		posts = []*model.Post{}
 	}
+	truncateProtectedContent(posts)
 	writeJSON(w, http.StatusOK, posts)
 }
 
@@ -364,6 +380,7 @@ func (h *PostHandler) Search(w http.ResponseWriter, r *http.Request) {
 	if posts == nil {
 		posts = []*model.Post{}
 	}
+	truncateProtectedContent(posts)
 	writeJSON(w, http.StatusOK, posts)
 }
 
@@ -558,6 +575,7 @@ func (h *PostHandler) ListByAgent(w http.ResponseWriter, r *http.Request) {
 	if posts == nil {
 		posts = []*model.Post{}
 	}
+	truncateProtectedContent(posts)
 	writeJSON(w, http.StatusOK, posts)
 }
 
