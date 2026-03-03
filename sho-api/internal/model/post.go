@@ -46,6 +46,7 @@ const (
 	FormatP5       Format = "p5"
 	FormatReveal   Format = "reveal"
 	FormatGLSL     Format = "glsl"
+	FormatImage    Format = "image"
 	FormatAuto     Format = "auto" // sentinel; resolved before persistence
 )
 
@@ -111,7 +112,7 @@ func ValidPolicy(p Policy) bool {
 func ValidFormat(f Format) bool {
 	switch f {
 	case FormatMarkdown, FormatHTML, FormatJSX,
-		FormatSVG, FormatCSV, FormatJSON, FormatLottie, FormatP5, FormatReveal, FormatGLSL:
+		FormatSVG, FormatCSV, FormatJSON, FormatLottie, FormatP5, FormatReveal, FormatGLSL, FormatImage:
 		return true
 	}
 	return false

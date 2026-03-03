@@ -6,9 +6,22 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ArrowClockwiseIcon, ArrowRightIcon } from '@phosphor-icons/react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { detectFormat } from '@/lib/detectFormat'
 import { StaggerContainer, StaggerItem, FadeIn } from '@/components/ui/MotionWrapper'
 import { PostCard } from '@/components/ui/PostCard'
+import {
+  buildJsxSrcdoc,
+  buildHtmlSrcdoc,
+  buildSvgSrcdoc,
+  buildLottieSrcdoc,
+  buildP5Srcdoc,
+  buildRevealSrcdoc,
+  buildGlslSrcdoc,
+  parseCSV,
+  formatJSON,
+} from '@/components/ContentRenderer'
 
 interface Post {
   id: string
@@ -26,7 +39,7 @@ interface Post {
 
 type Policy = 'open' | 'password' | 'ai-review'
 type ViewPolicy = 'open' | 'password' | 'human-qa' | 'ai-qa'
-type Format = 'auto' | 'markdown' | 'html' | 'jsx' | 'svg' | 'csv' | 'json' | 'lottie' | 'p5' | 'reveal' | 'glsl'
+type Format = 'auto' | 'markdown' | 'html' | 'jsx' | 'svg' | 'csv' | 'json' | 'lottie' | 'p5' | 'reveal' | 'glsl' | 'image'
 
 const FORMAT_OPTIONS: { value: Format; label: string }[] = [
   { value: 'auto', label: 'Auto' },
@@ -40,6 +53,7 @@ const FORMAT_OPTIONS: { value: Format; label: string }[] = [
   { value: 'p5', label: 'P5.js' },
   { value: 'reveal', label: 'Slides' },
   { value: 'glsl', label: 'GLSL' },
+  { value: 'image', label: 'Image' },
 ]
 
 const POLICY_OPTIONS: { value: Policy; label: string; desc: string }[] = [
@@ -254,6 +268,99 @@ interface PublishResult {
   view_password?: string
 }
 
+const IFRAME_FORMATS = ['html', 'jsx', 'svg', 'lottie', 'p5', 'reveal', 'glsl'] as const
+type IframeFormat = typeof IFRAME_FORMATS[number]
+
+function InlinePreview({ content, format }: { content: string; format: string }) {
+  // Image format
+  if (format === 'image') {
+    return (
+      <div className="rounded-xl border border-slate-200 overflow-hidden bg-slate-50 min-h-[400px] max-h-[500px] flex items-center justify-center p-4">
+        <img src={content} alt="" style={{ maxWidth: '100%', maxHeight: '460px', objectFit: 'contain' }} />
+      </div>
+    )
+  }
+
+  // iframe-based formats
+  if ((IFRAME_FORMATS as readonly string[]).includes(format)) {
+    let srcdoc: string
+    switch (format as IframeFormat) {
+      case 'jsx':    srcdoc = buildJsxSrcdoc(content); break
+      case 'svg':    srcdoc = buildSvgSrcdoc(content); break
+      case 'lottie': srcdoc = buildLottieSrcdoc(content); break
+      case 'p5':     srcdoc = buildP5Srcdoc(content); break
+      case 'reveal': srcdoc = buildRevealSrcdoc(content); break
+      case 'glsl':   srcdoc = buildGlslSrcdoc(content); break
+      default:       srcdoc = buildHtmlSrcdoc(content)
+    }
+    return (
+      <div className="rounded-xl border border-slate-200 overflow-hidden bg-white min-h-[400px]">
+        <iframe
+          srcDoc={srcdoc}
+          sandbox="allow-scripts"
+          className="w-full h-[500px] border-none"
+        />
+      </div>
+    )
+  }
+
+  // CSV — table view
+  if (format === 'csv') {
+    const rows = parseCSV(content)
+    const [head, ...body] = rows
+    return (
+      <div className="rounded-xl border border-slate-200 overflow-hidden bg-white min-h-[400px]">
+        <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
+          <table className="w-full text-sm border-collapse">
+            <thead>
+              <tr>
+                {head.map((h, i) => (
+                  <th key={i} className="px-3 py-2 bg-slate-50 border-b-2 border-slate-200 text-left text-xs font-semibold text-slate-600 whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {body.map((row, i) => (
+                <tr key={i} className="hover:bg-slate-50">
+                  {row.map((cell, j) => (
+                    <td key={j} className="px-3 py-1.5 border-b border-slate-100 text-xs text-slate-700">{cell}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )
+  }
+
+  // JSON — formatted code
+  if (format === 'json') {
+    const { formatted, error } = formatJSON(content)
+    return (
+      <div className="rounded-xl border border-slate-200 overflow-hidden bg-[#0d1117] min-h-[400px]">
+        {error && (
+          <div className="px-3 py-1.5 bg-[#3d1a1a] text-red-400 text-xs font-mono">
+            Parse error: {error}
+          </div>
+        )}
+        <pre className="p-4 text-xs font-mono text-[#e6edf3] leading-relaxed whitespace-pre-wrap break-words max-h-[500px] overflow-y-auto">
+          {formatted}
+        </pre>
+      </div>
+    )
+  }
+
+  // Markdown / txt / fallback
+  return (
+    <div className="rounded-xl border border-slate-200 overflow-hidden bg-white min-h-[400px] max-h-[500px] overflow-y-auto">
+      <div className="prose prose-sm prose-gray max-w-none p-5">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      </div>
+    </div>
+  )
+}
+
 export default function HomeClient({ posts }: { posts: Post[] }) {
   const router = useRouter()
 
@@ -329,8 +436,19 @@ export default function HomeClient({ posts }: { posts: Post[] }) {
   }
 
   async function loadFile(file: File) {
-    const text = await file.text()
-    updateContent(text)
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader()
+      reader.onload = () => {
+        if (typeof reader.result === 'string') {
+          updateContent(reader.result)
+          setFormat('image')
+        }
+      }
+      reader.readAsDataURL(file)
+    } else {
+      const text = await file.text()
+      updateContent(text)
+    }
   }
 
   const refreshEditPassword = useCallback(() => setEditPassword(generatePassword()), [])
@@ -894,58 +1012,112 @@ export default function HomeClient({ posts }: { posts: Post[] }) {
             </AnimatePresence>
           </div>
 
-          {/* Right: Trending */}
+          {/* Right: Trending / Preview */}
           <div className="lg:pt-2">
-            <FadeIn delay={0.15}>
-              <div className="flex items-center justify-between mb-5">
-                <span className="text-[11px] font-medium text-slate-400 uppercase tracking-widest">
-                  Trending
-                </span>
+            {/* Header: Trending ↔ Preview */}
+            <div className="flex items-center justify-between mb-5">
+              <AnimatePresence mode="wait">
+                {hasContent ? (
+                  <motion.span
+                    key="preview"
+                    initial={{ opacity: 0, y: -4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 4 }}
+                    transition={{ duration: 0.15 }}
+                    className="text-[11px] font-medium text-orange-500 uppercase tracking-widest"
+                  >
+                    Preview
+                    <span className="ml-2 text-slate-300 normal-case tracking-normal">
+                      {format === 'auto' ? detectedFormat : format}
+                    </span>
+                  </motion.span>
+                ) : (
+                  <motion.span
+                    key="trending"
+                    initial={{ opacity: 0, y: -4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 4 }}
+                    transition={{ duration: 0.15 }}
+                    className="text-[11px] font-medium text-slate-400 uppercase tracking-widest"
+                  >
+                    Trending
+                  </motion.span>
+                )}
+              </AnimatePresence>
+              {!hasContent && (
                 <Link
                   href="/explore"
                   className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 transition-colors"
                 >
                   Explore <ArrowRightIcon size={12} />
                 </Link>
-              </div>
-            </FadeIn>
+              )}
+            </div>
 
-            {posts.length > 0 ? (
-              <StaggerContainer className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-3">
-                {posts.slice(0, 6).map((post) => (
-                  <StaggerItem key={post.id}>
-                    <PostCard
-                      slug={post.slug}
-                      title={post.title}
-                      aiTitle={post.ai_title}
-                      format={post.format}
-                      views={post.views}
-                      likes={post.likes}
-                      lastViewedAt={post.last_viewed_at}
-                      createdAt={post.created_at}
-                    />
-                  </StaggerItem>
-                ))}
-              </StaggerContainer>
-            ) : (
-              <div className="text-center py-12">
-                <p className="text-sm text-slate-400">No posts yet. Be the first to publish.</p>
+            {/* Body: Conditional rendering */}
+            <AnimatePresence mode="wait">
+              {hasContent ? (
+                <motion.div
+                  key="preview"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <InlinePreview
+                    content={content}
+                    format={format === 'auto' ? detectedFormat : format}
+                  />
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="trending"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  {posts.length > 0 ? (
+                    <StaggerContainer className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2 gap-3">
+                      {posts.slice(0, 6).map((post) => (
+                        <StaggerItem key={post.id}>
+                          <PostCard
+                            slug={post.slug}
+                            title={post.title}
+                            aiTitle={post.ai_title}
+                            format={post.format}
+                            views={post.views}
+                            likes={post.likes}
+                            lastViewedAt={post.last_viewed_at}
+                            createdAt={post.created_at}
+                          />
+                        </StaggerItem>
+                      ))}
+                    </StaggerContainer>
+                  ) : (
+                    <div className="text-center py-12">
+                      <p className="text-sm text-slate-400">No posts yet. Be the first to publish.</p>
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* AI hint: only when not previewing */}
+            {!hasContent && (
+              <div className="mt-8 flex flex-wrap gap-2">
+                <a
+                  href="/skill.md"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-600 border border-slate-200 hover:border-slate-300 rounded-lg px-3 py-1.5 transition-all"
+                >
+                  <span className="text-[10px] bg-slate-100 text-slate-500 rounded px-1.5 py-0.5 font-medium uppercase tracking-wider">AI</span>
+                  skill.md
+                </a>
+                <AgentSetupButton />
               </div>
             )}
-
-            {/* AI hint */}
-            <div className="mt-8 flex flex-wrap gap-2">
-              <a
-                href="/skill.md"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-600 border border-slate-200 hover:border-slate-300 rounded-lg px-3 py-1.5 transition-all"
-              >
-                <span className="text-[10px] bg-slate-100 text-slate-500 rounded px-1.5 py-0.5 font-medium uppercase tracking-wider">AI</span>
-                skill.md
-              </a>
-              <AgentSetupButton />
-            </div>
           </div>
         </div>
 

@@ -11,6 +11,7 @@ const FORMAT_COLORS: Record<string, string> = {
   p5: 'bg-teal-50 text-teal-600 border-teal-100',
   reveal: 'bg-indigo-50 text-indigo-600 border-indigo-100',
   glsl: 'bg-rose-50 text-rose-600 border-rose-100',
+  image: 'bg-cyan-50 text-cyan-600 border-cyan-100',
   txt: 'bg-blue-50 text-blue-600 border-blue-100',
 }
 

@@ -1,12 +1,15 @@
-export type DetectableFormat = 'markdown' | 'html' | 'jsx' | 'svg' | 'csv' | 'json' | 'lottie' | 'p5' | 'glsl'
+export type DetectableFormat = 'markdown' | 'html' | 'jsx' | 'svg' | 'csv' | 'json' | 'lottie' | 'p5' | 'glsl' | 'image'
 
 /**
  * Detect content format from its text.
- * Priority: Lottie → P5.js → JSX → GLSL → SVG → HTML → JSON → CSV → Markdown (default)
+ * Priority: Image → Lottie → P5.js → JSX → GLSL → SVG → HTML → JSON → CSV → Markdown (default)
  */
 export function detectFormat(content: string): DetectableFormat {
   const s = content.trim()
   if (!s) return 'markdown'
+
+  // Image: data URL with image MIME type
+  if (s.startsWith('data:image/')) return 'image'
 
   // Lottie: valid JSON with "layers" and "fr" fields
   if (isValidJSON(s) && s.includes('"layers"') && s.includes('"fr"')) return 'lottie'

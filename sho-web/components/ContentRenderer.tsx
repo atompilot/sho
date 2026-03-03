@@ -6,7 +6,7 @@ import remarkGfm from 'remark-gfm'
 interface Props {
   content: string
   // 'txt' kept for backward compat with existing DB records; rendered as markdown
-  format: 'markdown' | 'html' | 'txt' | 'jsx' | 'svg' | 'csv' | 'json' | 'lottie' | 'p5' | 'reveal' | 'glsl'
+  format: 'markdown' | 'html' | 'txt' | 'jsx' | 'svg' | 'csv' | 'json' | 'lottie' | 'p5' | 'reveal' | 'glsl' | 'image'
   mode: 'preview' | 'source'
 }
 
@@ -15,7 +15,7 @@ const safe = (s: string) => s.replace(/<\/script/gi, '<\\/script')
 
 // ── JSX srcdoc builder ───────────────────────────────────────────────────────
 
-function buildJsxSrcdoc(content: string): string {
+export function buildJsxSrcdoc(content: string): string {
   // Transform ES imports from 'react' → UMD global React
   let code = content
     .replace(
@@ -75,7 +75,7 @@ ${safe(mountCode)}
 
 // ── HTML srcdoc builder ──────────────────────────────────────────────────────
 
-function buildHtmlSrcdoc(content: string): string {
+export function buildHtmlSrcdoc(content: string): string {
   // If the content already contains <html or <!DOCTYPE, use it as-is but inject base styles
   if (/^\s*(<(!DOCTYPE|html))/i.test(content)) {
     // Inject a base style reset into the existing <head> if present
@@ -94,7 +94,7 @@ function buildHtmlSrcdoc(content: string): string {
 
 // ── SVG srcdoc builder ───────────────────────────────────────────────────────
 
-function buildSvgSrcdoc(content: string): string {
+export function buildSvgSrcdoc(content: string): string {
   return `<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>html,body{margin:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#f5f5f5;overflow:hidden}
 svg{width:90%;max-height:90%;height:auto}</style></head>
@@ -103,7 +103,7 @@ svg{width:90%;max-height:90%;height:auto}</style></head>
 
 // ── Lottie srcdoc builder ────────────────────────────────────────────────────
 
-function buildLottieSrcdoc(content: string): string {
+export function buildLottieSrcdoc(content: string): string {
   return `<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>html,body{margin:0;height:100%;display:flex;align-items:center;justify-content:center;background:#1a1a2e}
 #c{width:100%;height:100%;max-width:600px;max-height:600px}</style></head>
@@ -118,7 +118,7 @@ try{
 
 // ── P5.js srcdoc builder ─────────────────────────────────────────────────────
 
-function buildP5Srcdoc(content: string): string {
+export function buildP5Srcdoc(content: string): string {
   return `<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>html,body{margin:0;overflow:hidden}canvas{display:block}</style></head>
 <body>
@@ -132,7 +132,7 @@ ${safe(content)}
 
 // ── Reveal.js srcdoc builder ─────────────────────────────────────────────────
 
-function buildRevealSrcdoc(content: string): string {
+export function buildRevealSrcdoc(content: string): string {
   const slides = content.split(/^---$/m)
     .map(s => `<section data-markdown><textarea data-template>${s.trim()}</textarea></section>`)
     .join('\n')
@@ -151,7 +151,7 @@ function buildRevealSrcdoc(content: string): string {
 
 // ── GLSL srcdoc builder ──────────────────────────────────────────────────────
 
-function buildGlslSrcdoc(content: string): string {
+export function buildGlslSrcdoc(content: string): string {
   return `<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>html,body,canvas{margin:0;width:100%;height:100%;display:block;overflow:hidden;background:#000}</style>
 </head><body>
@@ -199,7 +199,7 @@ requestAnimationFrame(loop);
 
 // ── CSV inline renderer ──────────────────────────────────────────────────────
 
-function parseCSV(content: string): string[][] {
+export function parseCSV(content: string): string[][] {
   return content.trim().split('\n').map(line => {
     const fields: string[] = []
     let field = ''
@@ -216,7 +216,7 @@ function parseCSV(content: string): string[][] {
 
 // ── JSON inline renderer ─────────────────────────────────────────────────────
 
-function formatJSON(content: string): { formatted: string; error?: string } {
+export function formatJSON(content: string): { formatted: string; error?: string } {
   try {
     return { formatted: JSON.stringify(JSON.parse(content), null, 2) }
   } catch (e) {
@@ -289,6 +289,21 @@ export function ContentRenderer({ content, format, mode }: Props) {
     overflowY: 'auto',
     zIndex: 10,
     background: 'white',
+  }
+
+  // Image format — full-screen centered
+  if (format === 'image') {
+    return (
+      <div style={{
+        ...base,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: '#f5f5f5',
+      }}>
+        <img src={content} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+      </div>
+    )
   }
 
   // CSV — table view

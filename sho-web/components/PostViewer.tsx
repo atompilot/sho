@@ -15,6 +15,7 @@ import {
   XIcon,
   CopyIcon,
   CheckIcon,
+  DownloadSimpleIcon,
 } from '@phosphor-icons/react'
 import { ContentRenderer } from './ContentRenderer'
 
@@ -24,7 +25,7 @@ interface Post {
   ai_title?: string
   content?: string
   preview?: string
-  format: 'markdown' | 'html' | 'txt' | 'jsx' | 'svg' | 'csv' | 'json' | 'lottie' | 'p5' | 'reveal' | 'glsl'
+  format: 'markdown' | 'html' | 'txt' | 'jsx' | 'svg' | 'csv' | 'json' | 'lottie' | 'p5' | 'reveal' | 'glsl' | 'image'
   policy: string
   view_policy?: 'open' | 'password' | 'human-qa' | 'ai-qa'
   view_qa_question?: string
@@ -373,6 +374,34 @@ export function PostViewer({ post, initialLikes, initialCommentsCount }: {
     router.push(`/edit/${post.slug}`)
   }
 
+  const handleDownload = () => {
+    const content = post.content
+    if (!content) return
+    const title = post.title || post.ai_title || post.slug
+    const extMap: Record<string, string> = {
+      markdown: '.md', html: '.html', txt: '.txt', jsx: '.jsx', svg: '.svg',
+      csv: '.csv', json: '.json', lottie: '.json', p5: '.js', reveal: '.md',
+      glsl: '.glsl', image: '',
+    }
+    if (post.format === 'image' && content.startsWith('data:')) {
+      const a = document.createElement('a')
+      a.href = content
+      const mimeMatch = content.match(/^data:image\/(\w+)/)
+      const imgExt = mimeMatch ? `.${mimeMatch[1].replace('jpeg', 'jpg')}` : '.png'
+      a.download = `${title}${imgExt}`
+      a.click()
+      return
+    }
+    const ext = extMap[post.format] || '.txt'
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${title}${ext}`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   const handleVerifyView = async () => {
     if (!credential.trim() || verifying) return
     setVerifying(true)
@@ -537,6 +566,12 @@ export function PostViewer({ post, initialLikes, initialCommentsCount }: {
             icon={<PencilSimpleIcon size={18} weight="regular" />}
             title="Edit"
             onClick={(e) => { if (!didDrag.current) { e.stopPropagation(); handleEditClick() } }}
+          />
+          <Divider />
+          <ActionBtn
+            icon={<DownloadSimpleIcon size={18} weight="regular" />}
+            title="Download"
+            onClick={(e) => { if (!didDrag.current) { e.stopPropagation(); handleDownload() } }}
           />
           <Divider />
           <ActionBtn

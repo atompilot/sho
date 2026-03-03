@@ -11,6 +11,9 @@ import (
 // DetectFormat inspects content and returns the most likely format.
 // Priority: Lottie → P5.js → JSX → GLSL → SVG → HTML → JSON → CSV → Markdown (default).
 func DetectFormat(content string) model.Format {
+	if detectImage(content) {
+		return model.FormatImage
+	}
 	if detectLottie(content) {
 		return model.FormatLottie
 	}
@@ -177,6 +180,11 @@ func detectJSON(content string) bool {
 		return false
 	}
 	return isValidJSON(trimmed)
+}
+
+// detectImage: content starts with data:image/ (base64-encoded image).
+func detectImage(content string) bool {
+	return strings.HasPrefix(strings.TrimSpace(content), "data:image/")
 }
 
 // detectCSV: ≥2 lines, all lines have the same comma count (≥1), no HTML/JSON features.
