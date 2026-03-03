@@ -39,7 +39,7 @@ export default function EditPostPage() {
       })
       .then((data: PostData) => {
         setPost(data)
-        setContent(data.content)
+        setContent(data.content ?? '')
       })
       .catch(() => setError('Failed to load post'))
       .finally(() => setLoading(false))
@@ -124,31 +124,6 @@ export default function EditPostPage() {
     )
   }
 
-  if (post.policy === 'locked') {
-    return (
-      <main className="min-h-[100dvh] flex items-center justify-center px-4 bg-white">
-        <div className="w-full max-w-md text-center">
-          <div className="border border-amber-200 bg-amber-50 rounded-2xl p-8">
-            <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center mx-auto mb-4">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-              </svg>
-            </div>
-            <h1 className="text-xl font-semibold text-slate-900 mb-2">Locked</h1>
-            <p className="text-sm text-slate-500 mb-6">This post is locked and cannot be edited.</p>
-            <Link
-              href={`/${slug}`}
-              className="inline-block bg-slate-800 text-white rounded-xl px-5 py-2.5 text-sm font-medium hover:bg-slate-900 transition-colors"
-            >
-              View post
-            </Link>
-          </div>
-        </div>
-      </main>
-    )
-  }
-
   return (
     <main className="min-h-[100dvh] flex flex-col items-center px-4 py-16 bg-white">
       <StaggerContainer className="w-full max-w-2xl">
@@ -179,7 +154,7 @@ export default function EditPostPage() {
             />
             <div className="flex justify-end mt-1.5">
               <span className="text-xs text-slate-400">
-                {content.length.toLocaleString()} chars
+                {(content?.length ?? 0).toLocaleString()} chars
               </span>
             </div>
           </StaggerItem>

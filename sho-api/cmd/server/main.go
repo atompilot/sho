@@ -48,7 +48,8 @@ func main() {
 	postStore := store.NewPostStore(pool)
 	webhookStore := store.NewWebhookStore(pool)
 	channelStore := store.NewChannelStore(pool)
-	postSvc := service.NewPostService(postStore)
+	masterPassword := os.Getenv("MASTER_PASSWORD")
+	postSvc := service.NewPostService(postStore, masterPassword)
 	postSvc.SetChannelStore(channelStore)
 
 	var llmChatter service.LLMChatter
@@ -76,7 +77,7 @@ func main() {
 	webhookDisp := webhook.NewDispatcher(webhookStore)
 	go webhookDisp.Run(ctx)
 
-	postHandler := handler.NewPostHandler(postSvc, llmChatter, webhookDisp, webhookStore)
+	postHandler := handler.NewPostHandler(postSvc, llmChatter, webhookDisp, webhookStore, masterPassword)
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
@@ -99,6 +100,7 @@ func main() {
 		r.Post("/posts/{slug}/comments", postHandler.CreateComment)
 		r.Post("/posts/{slug}/verify-view", postHandler.VerifyView)
 		r.Get("/posts/by-agent/{agent_id}", postHandler.ListByAgent)
+		r.Post("/auth/verify-master", postHandler.VerifyMasterPassword)
 
 		// Channels
 		channelHandler := handler.NewChannelHandler(channelStore)

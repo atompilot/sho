@@ -48,12 +48,13 @@ func (e ErrDuplicateContent) Error() string {
 }
 
 type PostService struct {
-	store        *store.PostStore
-	channelStore *store.ChannelStore
+	store          *store.PostStore
+	channelStore   *store.ChannelStore
+	masterPassword string
 }
 
-func NewPostService(s *store.PostStore) *PostService {
-	return &PostService{store: s}
+func NewPostService(s *store.PostStore, masterPassword string) *PostService {
+	return &PostService{store: s, masterPassword: masterPassword}
 }
 
 func (s *PostService) SetChannelStore(cs *store.ChannelStore) {
@@ -211,8 +212,7 @@ func (s *PostService) CreatePost(ctx context.Context, input CreatePostInput) (*m
 	return &model.PublishResponse{
 		ID:           post.ID,
 		Slug:         slug,
-		EditToken:    editToken,
-		ManageURL:    fmt.Sprintf("/manage/%s", slug),
+		Title:        title,
 		EditPassword: rawEditPassword,
 		ViewPassword: rawViewPassword,
 		CreatedAt:    post.CreatedAt,
@@ -244,17 +244,20 @@ func (s *PostService) UpdatePost(ctx context.Context, input UpdatePostInput, llm
 		return fmt.Errorf("get post: %w", err)
 	}
 
-	if post.Policy == model.PolicyAIReview {
-		if err := s.verifyAIReview(ctx, llmClient, post, input.Content); err != nil {
-			return err
-		}
-	} else {
-		stored := post.Password
-		if post.Policy == model.PolicyOwnerOnly {
-			stored = &post.EditToken
-		}
-		if err := policy.CheckUpdate(post.Policy, stored, input.Credential); err != nil {
-			return err
+	// Master password bypasses all policy checks.
+	if !policy.CheckMasterPassword(s.masterPassword, input.Credential) {
+		if post.Policy == model.PolicyAIReview {
+			if err := s.verifyAIReview(ctx, llmClient, post, input.Content); err != nil {
+				return err
+			}
+		} else {
+			stored := post.Password
+			if post.Policy == model.PolicyOwnerOnly {
+				stored = &post.EditToken
+			}
+			if err := policy.CheckUpdate(post.Policy, stored, input.Credential); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -338,19 +341,17 @@ func (s *PostService) DeletePost(ctx context.Context, slug string, credential st
 		return fmt.Errorf("get post: %w", err)
 	}
 
-	// Accept edit_token directly (MCP / API backwards compat).
-	// Otherwise fall through to the same policy checker as update.
-	if !policy.ConstantTimeEqual(post.EditToken, credential) {
-		// For locked posts, only the edit_token grants delete access.
-		if post.Policy == model.PolicyLocked {
-			return policy.ErrInvalidCredential
-		}
-		stored := post.Password
-		if post.Policy == model.PolicyOwnerOnly {
-			stored = &post.EditToken
-		}
-		if err := policy.CheckUpdate(post.Policy, stored, credential); err != nil {
-			return err
+	// Master password bypasses all policy checks.
+	if !policy.CheckMasterPassword(s.masterPassword, credential) {
+		// Accept edit_token directly (backwards compat).
+		if !policy.ConstantTimeEqual(post.EditToken, credential) {
+			stored := post.Password
+			if post.Policy == model.PolicyOwnerOnly {
+				stored = &post.EditToken
+			}
+			if err := policy.CheckUpdate(post.Policy, stored, credential); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -596,6 +597,11 @@ func (s *PostService) VerifyView(ctx context.Context, slug, credential string, l
 	post, err := s.store.GetBySlug(ctx, slug)
 	if err != nil {
 		return nil, err
+	}
+
+	// Master password bypasses all view policy checks.
+	if policy.CheckMasterPassword(s.masterPassword, credential) {
+		return &VerifyViewResult{Granted: true, Content: post.Content}, nil
 	}
 
 	switch post.ViewPolicy {

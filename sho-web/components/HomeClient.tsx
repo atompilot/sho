@@ -24,7 +24,7 @@ interface Post {
   created_at: string
 }
 
-type Policy = 'locked' | 'open' | 'password' | 'ai-review'
+type Policy = 'open' | 'password' | 'ai-review'
 type ViewPolicy = 'open' | 'password' | 'human-qa' | 'ai-qa'
 type Format = 'auto' | 'markdown' | 'html' | 'jsx' | 'svg' | 'csv' | 'json' | 'lottie' | 'p5' | 'reveal' | 'glsl'
 
@@ -43,9 +43,8 @@ const FORMAT_OPTIONS: { value: Format; label: string }[] = [
 ]
 
 const POLICY_OPTIONS: { value: Policy; label: string; desc: string }[] = [
-  { value: 'locked', label: 'Locked', desc: 'No edits allowed' },
-  { value: 'open', label: 'Open', desc: 'Anyone can edit' },
   { value: 'password', label: 'Password', desc: 'Password to edit' },
+  { value: 'open', label: 'Open', desc: 'Anyone can edit' },
   { value: 'ai-review', label: 'AI Review', desc: 'AI reviews edits' },
 ]
 
@@ -57,7 +56,6 @@ const VIEW_POLICY_OPTIONS: { value: ViewPolicy; label: string; desc: string }[] 
 ]
 
 const POLICY_SUCCESS_MSG: Record<Policy, string> = {
-  locked: 'Published and locked. No further edits.',
   open: 'Published. Anyone can edit.',
   password: 'Published. Password required to edit.',
   'ai-review': 'Published. AI will review edits.',

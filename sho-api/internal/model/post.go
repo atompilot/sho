@@ -9,7 +9,6 @@ import (
 type Policy string
 
 const (
-	PolicyLocked    Policy = "locked"
 	PolicyOpen      Policy = "open"
 	PolicyPassword  Policy = "password"
 	PolicyOwnerOnly Policy = "owner-only"
@@ -100,7 +99,7 @@ type PostVersion struct {
 // ValidPolicy reports whether p is a known policy value.
 func ValidPolicy(p Policy) bool {
 	switch p {
-	case PolicyLocked, PolicyOpen, PolicyPassword, PolicyOwnerOnly, PolicyAIReview:
+	case PolicyOpen, PolicyPassword, PolicyOwnerOnly, PolicyAIReview:
 		return true
 	}
 	return false
@@ -121,8 +120,7 @@ func ValidFormat(f Format) bool {
 type PublishResponse struct {
 	ID           uuid.UUID `json:"id"`
 	Slug         string    `json:"slug"`
-	EditToken    string    `json:"edit_token"`
-	ManageURL    string    `json:"manage_url"`
+	Title        *string   `json:"title,omitempty"`
 	EditPassword *string   `json:"edit_password,omitempty"`
 	ViewPassword *string   `json:"view_password,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`

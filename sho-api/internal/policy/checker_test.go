@@ -8,9 +8,11 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestCheckLocked(t *testing.T) {
-	err := policy.CheckUpdate(model.PolicyLocked, nil, "any-credential")
-	assert.ErrorIs(t, err, policy.ErrLocked)
+func TestCheckMasterPassword(t *testing.T) {
+	assert.True(t, policy.CheckMasterPassword("master123", "master123"))
+	assert.False(t, policy.CheckMasterPassword("master123", "wrong"))
+	assert.False(t, policy.CheckMasterPassword("", "anything"))
+	assert.False(t, policy.CheckMasterPassword("master123", ""))
 }
 
 func TestCheckOpen(t *testing.T) {

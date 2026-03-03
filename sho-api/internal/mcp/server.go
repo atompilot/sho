@@ -50,7 +50,7 @@ func HTTPServer(s *mcpserver.MCPServer) *mcpserver.StreamableHTTPServer {
 
 func publishTool() mcp.Tool {
 	return mcp.NewTool("sho_publish",
-		mcp.WithDescription("Publish new content to Sho. Returns slug, edit_token, and manage_url."),
+		mcp.WithDescription("Publish new content to Sho. Returns slug, password, and title."),
 		mcp.WithString("content",
 			mcp.Required(),
 			mcp.Description("The main body of the post (markdown, HTML, or plain text)."),
@@ -62,7 +62,7 @@ func publishTool() mcp.Tool {
 			mcp.Description("Optional title for the post."),
 		),
 		mcp.WithString("policy",
-			mcp.Description("Access policy: open, locked, password, owner-only, ai-review (default: open)."),
+			mcp.Description("Access policy: open, password, owner-only, ai-review (default: password)."),
 		),
 		mcp.WithString("password",
 			mcp.Description("Password (required when policy=password)."),
@@ -112,7 +112,7 @@ func getTool() mcp.Tool {
 
 func updateTool() mcp.Tool {
 	return mcp.NewTool("sho_update",
-		mcp.WithDescription("Update the content of an existing post. Requires the edit_token or password as credential."),
+		mcp.WithDescription("Update the content of an existing post. Requires the password or master password as credential."),
 		mcp.WithString("slug",
 			mcp.Required(),
 			mcp.Description("Slug of the post to update."),
@@ -123,7 +123,7 @@ func updateTool() mcp.Tool {
 		),
 		mcp.WithString("credential",
 			mcp.Required(),
-			mcp.Description("edit_token (for owner-only) or password (for password-protected posts)."),
+			mcp.Description("Password for password-protected posts, or master password."),
 		),
 		mcp.WithString("edited_by",
 			mcp.Description("Optional identifier for the editor (e.g. 'mcp-client')."),
@@ -133,14 +133,14 @@ func updateTool() mcp.Tool {
 
 func deleteTool() mcp.Tool {
 	return mcp.NewTool("sho_delete",
-		mcp.WithDescription("Soft-delete a post. Requires the edit_token."),
+		mcp.WithDescription("Soft-delete a post. Requires the password or master password."),
 		mcp.WithString("slug",
 			mcp.Required(),
 			mcp.Description("Slug of the post to delete."),
 		),
-		mcp.WithString("edit_token",
+		mcp.WithString("credential",
 			mcp.Required(),
-			mcp.Description("The edit_token received when the post was created."),
+			mcp.Description("Password for password-protected posts, or master password."),
 		),
 	)
 }
@@ -183,19 +183,17 @@ func publishHandler(svc *service.PostService, webhookStore *store.WebhookStore) 
 			fmt_ = service.DetectFormat(content)
 		}
 
-		policyStr := req.GetString("policy", "open")
+		policyStr := req.GetString("policy", "password")
 		var pol model.Policy
 		switch policyStr {
-		case "locked":
-			pol = model.PolicyLocked
-		case "password":
-			pol = model.PolicyPassword
+		case "open":
+			pol = model.PolicyOpen
 		case "owner-only":
 			pol = model.PolicyOwnerOnly
 		case "ai-review":
 			pol = model.PolicyAIReview
 		default:
-			pol = model.PolicyOpen
+			pol = model.PolicyPassword
 		}
 
 		vpStr := req.GetString("view_policy", "open")
@@ -337,12 +335,12 @@ func deleteHandler(svc *service.PostService) mcpserver.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError("slug is required"), nil
 		}
-		editToken, err := req.RequireString("edit_token")
+		credential, err := req.RequireString("credential")
 		if err != nil {
-			return mcp.NewToolResultError("edit_token is required"), nil
+			return mcp.NewToolResultError("credential is required"), nil
 		}
 
-		if err := svc.DeletePost(ctx, slug, editToken); err != nil {
+		if err := svc.DeletePost(ctx, slug, credential); err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("delete post: %v", err)), nil
 		}
 

@@ -11,17 +11,12 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-var (
-	ErrLocked            = errors.New("content is locked and cannot be modified")
-	ErrInvalidCredential = errors.New("invalid credential")
-)
+var ErrInvalidCredential = errors.New("invalid credential")
 
 // CheckUpdate validates whether an update is permitted.
 // For ai-review policy, validation is handled by the service layer (LLM call).
 func CheckUpdate(p model.Policy, stored *string, credential string) error {
 	switch p {
-	case model.PolicyLocked:
-		return ErrLocked
 	case model.PolicyOpen:
 		return nil
 	case model.PolicyPassword:
@@ -46,6 +41,15 @@ func CheckUpdate(p model.Policy, stored *string, credential string) error {
 	default:
 		return fmt.Errorf("unknown policy: %s", p)
 	}
+}
+
+// CheckMasterPassword checks if the given credential matches the master password.
+// Returns false if masterPW is empty (feature disabled).
+func CheckMasterPassword(masterPW, credential string) bool {
+	if masterPW == "" || credential == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(masterPW), []byte(credential)) == 1
 }
 
 // ConstantTimeEqual compares two strings in constant time to prevent timing attacks.

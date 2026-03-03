@@ -158,7 +158,6 @@ export function PostViewer({ post, initialLikes, initialCommentsCount }: {
   const [commentInput, setCommentInput] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [replyTo, setReplyTo] = useState<{ id: string; content: string } | null>(null)
-  const [editToast, setEditToast] = useState('')
   const [shares, setShares] = useState(post.shares ?? 0)
   const [showShare, setShowShare] = useState(false)
   const [shareCopied, setShareCopied] = useState('')
@@ -370,12 +369,6 @@ export function PostViewer({ post, initialLikes, initialCommentsCount }: {
   }
 
   const handleEditClick = () => {
-    const p = post.policy
-    if (p === 'locked') {
-      setEditToast('This post is locked and cannot be edited')
-      setTimeout(() => setEditToast(''), 1500)
-      return
-    }
     router.push(`/edit/${post.slug}`)
   }
 
@@ -546,20 +539,6 @@ export function PostViewer({ post, initialLikes, initialCommentsCount }: {
           />
         </motion.div>
       )}
-
-      {/* Toast */}
-      <AnimatePresence>
-        {editToast && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
-            className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[70] bg-slate-900/90 backdrop-blur-lg text-white px-5 py-2.5 rounded-xl text-sm shadow-lg"
-          >
-            {editToast}
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Share Panel */}
       <AnimatePresence>

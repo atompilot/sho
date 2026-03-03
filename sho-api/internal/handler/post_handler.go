@@ -35,14 +35,15 @@ func init() {
 const maxRequestBodyBytes = 10 << 20 // 10 MB
 
 type PostHandler struct {
-	svc          *service.PostService
-	llmClient    service.LLMChatter
-	webhookDisp  *webhook.Dispatcher
-	webhookStore *store.WebhookStore
+	svc            *service.PostService
+	llmClient      service.LLMChatter
+	webhookDisp    *webhook.Dispatcher
+	webhookStore   *store.WebhookStore
+	masterPassword string
 }
 
-func NewPostHandler(svc *service.PostService, llmClient service.LLMChatter, wd *webhook.Dispatcher, ws *store.WebhookStore) *PostHandler {
-	return &PostHandler{svc: svc, llmClient: llmClient, webhookDisp: wd, webhookStore: ws}
+func NewPostHandler(svc *service.PostService, llmClient service.LLMChatter, wd *webhook.Dispatcher, ws *store.WebhookStore, masterPassword string) *PostHandler {
+	return &PostHandler{svc: svc, llmClient: llmClient, webhookDisp: wd, webhookStore: ws, masterPassword: masterPassword}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -96,9 +97,9 @@ func (h *PostHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Policy == "" {
-		req.Policy = model.PolicyLocked
+		req.Policy = model.PolicyPassword
 	} else if !model.ValidPolicy(req.Policy) {
-		writeError(w, http.StatusBadRequest, "invalid policy: must be one of open, locked, password, owner-only, ai-review")
+		writeError(w, http.StatusBadRequest, "invalid policy: must be one of open, password, owner-only, ai-review")
 		return
 	}
 	if req.ViewPolicy == "" {
@@ -252,10 +253,6 @@ func (h *PostHandler) Update(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "post not found")
 		return
 	}
-	if errors.Is(err, policy.ErrLocked) {
-		writeError(w, http.StatusForbidden, err.Error())
-		return
-	}
 	if errors.Is(err, policy.ErrInvalidCredential) {
 		writeError(w, http.StatusUnauthorized, err.Error())
 		return
@@ -293,10 +290,6 @@ func (h *PostHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	err := h.svc.DeletePost(r.Context(), slug, credential)
 	if errors.Is(err, store.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "post not found")
-		return
-	}
-	if errors.Is(err, policy.ErrLocked) {
-		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
 	if errors.Is(err, policy.ErrInvalidCredential) {
@@ -564,4 +557,16 @@ func (h *PostHandler) VerifyView(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *PostHandler) VerifyMasterPassword(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	valid := policy.CheckMasterPassword(h.masterPassword, req.Password)
+	writeJSON(w, http.StatusOK, map[string]bool{"valid": valid})
 }
