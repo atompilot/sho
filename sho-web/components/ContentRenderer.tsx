@@ -1,5 +1,6 @@
 'use client'
 
+import { useState, useEffect, useRef } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -7,11 +8,25 @@ interface Props {
   content: string
   // 'txt' kept for backward compat with existing DB records; rendered as markdown
   format: 'markdown' | 'html' | 'txt' | 'jsx' | 'svg' | 'csv' | 'json' | 'lottie' | 'p5' | 'reveal' | 'glsl' | 'image'
-  mode: 'preview' | 'source'
+  mode: 'preview' | 'source' | 'feed'
+  slug?: string
 }
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:15080'
 
 // Prevent </script inside user code from closing outer tag in srcdoc
 const safe = (s: string) => s.replace(/<\/script/gi, '<\\/script')
+
+// ── Error reporter script injected into all srcdoc iframes ────────────────
+
+const errorReporterScript = `<script>
+window.onerror=function(msg,src,line,col,err){
+  parent.postMessage({type:'sho-render-error',message:String(msg)+(line?' (line '+line+')':'')},'*');
+};
+window.addEventListener('unhandledrejection',function(e){
+  parent.postMessage({type:'sho-render-error',message:'Unhandled rejection: '+String(e.reason)},'*');
+});
+<\/script>`
 
 // ── JSX srcdoc builder ───────────────────────────────────────────────────────
 
@@ -61,13 +76,14 @@ export function buildJsxSrcdoc(content: string): string {
 </style>
 </head>
 <body>
+${errorReporterScript}
 <div id="root"></div>
 <div id="err"></div>
 <script type="text/babel" data-presets="react">
 try{
 ${safe(code)}
 ${safe(mountCode)}
-}catch(e){document.getElementById('err').textContent=String(e)}
+}catch(e){document.getElementById('err').textContent=String(e);parent.postMessage({type:'sho-render-error',message:String(e)},'*')}
 <\/script>
 </body>
 </html>`
@@ -81,15 +97,19 @@ export function buildHtmlSrcdoc(content: string): string {
     // Inject a base style reset into the existing <head> if present
     const baseStyle = '<style>html,body{margin:0;padding:0;width:100%;height:100%}</style>'
     if (/<head[^>]*>/i.test(content)) {
-      return content.replace(/(<head[^>]*>)/i, `$1${baseStyle}`)
+      return content.replace(/(<head[^>]*>)/i, `$1${baseStyle}${errorReporterScript}`)
     }
-    return content
+    // Inject before </body> or at end
+    if (/<\/body>/i.test(content)) {
+      return content.replace(/<\/body>/i, `${errorReporterScript}</body>`)
+    }
+    return content + errorReporterScript
   }
   // Wrap partial HTML with full-screen base styles
   return `<!DOCTYPE html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>html,body{margin:0;padding:0;width:100%;height:100%}</style>
-</head><body>${content}</body></html>`
+</head><body>${content}${errorReporterScript}</body></html>`
 }
 
 // ── SVG srcdoc builder ───────────────────────────────────────────────────────
@@ -98,7 +118,7 @@ export function buildSvgSrcdoc(content: string): string {
   return `<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>html,body{margin:0;width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#f5f5f5;overflow:hidden}
 svg{width:90%;max-height:90%;height:auto}</style></head>
-<body>${content}</body></html>`
+<body>${content}${errorReporterScript}</body></html>`
 }
 
 // ── Lottie srcdoc builder ────────────────────────────────────────────────────
@@ -108,11 +128,12 @@ export function buildLottieSrcdoc(content: string): string {
 <style>html,body{margin:0;height:100%;display:flex;align-items:center;justify-content:center;background:#1a1a2e}
 #c{width:100%;height:100%;max-width:600px;max-height:600px}</style></head>
 <body><div id="c"></div>
+${errorReporterScript}
 <script src="https://cdn.jsdelivr.net/npm/lottie-web@5.12.2/build/player/lottie.min.js"><\/script>
 <script>
 try{
   lottie.loadAnimation({container:document.getElementById('c'),renderer:'svg',loop:true,autoplay:true,animationData:${safe(content)}});
-}catch(e){document.body.innerHTML='<pre style="color:red;padding:16px">'+e+'</pre>'}
+}catch(e){document.body.innerHTML='<pre style="color:red;padding:16px">'+e+'</pre>';parent.postMessage({type:'sho-render-error',message:String(e)},'*')}
 <\/script></body></html>`
 }
 
@@ -122,11 +143,12 @@ export function buildP5Srcdoc(content: string): string {
   return `<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>html,body{margin:0;overflow:hidden}canvas{display:block}</style></head>
 <body>
+${errorReporterScript}
 <script src="https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/p5.min.js"><\/script>
 <script>
 try{
 ${safe(content)}
-}catch(e){document.body.innerHTML='<pre style="color:red;padding:16px">'+e+'</pre>'}
+}catch(e){document.body.innerHTML='<pre style="color:red;padding:16px">'+e+'</pre>';parent.postMessage({type:'sho-render-error',message:String(e)},'*')}
 <\/script></body></html>`
 }
 
@@ -142,6 +164,7 @@ export function buildRevealSrcdoc(content: string): string {
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/black.css">
 <style>html,body{margin:0;height:100%;overflow:hidden}.reveal{height:100vh}</style>
 </head><body>
+${errorReporterScript}
 <div class="reveal"><div class="slides">${slides}</div></div>
 <script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"><\/script>
 <script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/plugin/markdown/markdown.js"><\/script>
@@ -156,10 +179,11 @@ export function buildGlslSrcdoc(content: string): string {
 <style>html,body,canvas{margin:0;width:100%;height:100%;display:block;overflow:hidden;background:#000}</style>
 </head><body>
 <canvas id="c"></canvas>
+${errorReporterScript}
 <script>
 const canvas=document.getElementById('c');
 const gl=canvas.getContext('webgl')||canvas.getContext('experimental-webgl');
-if(!gl){document.body.innerHTML='<p style="color:red;padding:16px">WebGL not supported</p>';}
+if(!gl){document.body.innerHTML='<p style="color:red;padding:16px">WebGL not supported</p>';parent.postMessage({type:'sho-render-error',message:'WebGL not supported'},'*');}
 else{
 const VS=\`attribute vec2 p;void main(){gl_Position=vec4(p,0,1);}\`;
 const FS=\`precision highp float;
@@ -167,12 +191,12 @@ uniform float uTime;
 uniform vec2 uResolution;
 uniform vec2 uMouse;
 ${safe(content)}\`;
-function shader(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){console.error(gl.getShaderInfoLog(s));}return s;}
+function shader(type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)){var e=gl.getShaderInfoLog(s);console.error(e);parent.postMessage({type:'sho-render-error',message:'GLSL compile: '+e},'*');}return s;}
 const prog=gl.createProgram();
 gl.attachShader(prog,shader(gl.VERTEX_SHADER,VS));
 gl.attachShader(prog,shader(gl.FRAGMENT_SHADER,FS));
 gl.linkProgram(prog);
-if(!gl.getProgramParameter(prog,gl.LINK_STATUS)){document.body.innerHTML='<pre style="color:red;padding:16px">'+gl.getProgramInfoLog(prog)+'</pre>';}
+if(!gl.getProgramParameter(prog,gl.LINK_STATUS)){var le=gl.getProgramInfoLog(prog);document.body.innerHTML='<pre style="color:red;padding:16px">'+le+'</pre>';parent.postMessage({type:'sho-render-error',message:'GLSL link: '+le},'*');}
 else{
 gl.useProgram(prog);
 const buf=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buf);
@@ -224,9 +248,113 @@ export function formatJSON(content: string): { formatted: string; error?: string
   }
 }
 
+// ── Render Error Panel ───────────────────────────────────────────────────────
+
+function RenderErrorPanel({ message, format }: { message: string; format: string }) {
+  return (
+    <div style={{
+      position: 'absolute',
+      inset: 0,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: 'rgba(0,0,0,0.6)',
+      backdropFilter: 'blur(8px)',
+      zIndex: 20,
+    }}>
+      <div style={{
+        maxWidth: 480,
+        width: '90%',
+        background: '#1a1a2e',
+        borderRadius: 16,
+        padding: '32px 28px',
+        textAlign: 'center',
+        border: '1px solid rgba(255,255,255,0.08)',
+        boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
+      }}>
+        <div style={{ fontSize: 36, marginBottom: 16 }}>&#9888;</div>
+        <div style={{
+          fontSize: 14,
+          fontWeight: 600,
+          color: '#f87171',
+          marginBottom: 12,
+        }}>
+          Render Error
+        </div>
+        <pre style={{
+          background: '#0d1117',
+          color: '#e6edf3',
+          padding: '16px',
+          borderRadius: 10,
+          fontSize: 12,
+          lineHeight: 1.5,
+          fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+          textAlign: 'left',
+          maxHeight: 200,
+          overflow: 'auto',
+          margin: '0 0 16px 0',
+        }}>
+          {message}
+        </pre>
+        <span style={{
+          display: 'inline-block',
+          fontSize: 11,
+          fontWeight: 500,
+          color: 'rgba(255,255,255,0.4)',
+          background: 'rgba(255,255,255,0.06)',
+          borderRadius: 6,
+          padding: '3px 10px',
+          textTransform: 'uppercase',
+          letterSpacing: '0.05em',
+        }}>
+          {format}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+// ── Report render error (fire-and-forget) ────────────────────────────────────
+
+function reportRenderError(slug: string, message: string) {
+  fetch(`${API_BASE}/api/v1/posts/${slug}/render-error`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message }),
+  }).catch(() => {})
+}
+
 // ── ContentRenderer ──────────────────────────────────────────────────────────
 
-export function ContentRenderer({ content, format, mode }: Props) {
+export function ContentRenderer({ content, format, mode, slug }: Props) {
+  const [renderError, setRenderError] = useState<string | null>(null)
+  const reportedRef = useRef(false)
+  const iframeRef = useRef<HTMLIFrameElement>(null)
+
+  // Reset error state when content changes
+  useEffect(() => {
+    setRenderError(null)
+    reportedRef.current = false
+  }, [content])
+
+  // Listen for error messages from iframe
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      if (e.data?.type === 'sho-render-error' && e.source === iframeRef.current?.contentWindow) {
+        const msg = String(e.data.message || 'Unknown error')
+        setRenderError(msg)
+        if (slug && !reportedRef.current) {
+          reportedRef.current = true
+          reportRenderError(slug, msg)
+        }
+      }
+    }
+    window.addEventListener('message', handler)
+    return () => window.removeEventListener('message', handler)
+  }, [slug])
+
   // Source mode — full-screen dark code view
   if (mode === 'source') {
     return (
@@ -266,30 +394,26 @@ export function ContentRenderer({ content, format, mode }: Props) {
       case 'glsl':   srcdoc = buildGlslSrcdoc(content); break
       default:       srcdoc = buildHtmlSrcdoc(content) // html
     }
+    const iframeFeedStyle: React.CSSProperties = mode === 'feed'
+      ? { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, width: '100%', height: '100%', border: 'none' }
+      : { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, width: '100vw', height: '100vh', border: 'none', zIndex: 10 }
     return (
-      <iframe
-        srcDoc={srcdoc}
-        sandbox="allow-scripts"
-        style={{
-          position: 'fixed',
-          top: 0, left: 0, right: 0, bottom: 0,
-          width: '100vw',
-          height: '100vh',
-          border: 'none',
-          zIndex: 10,
-        }}
-      />
+      <div style={{ position: 'relative', ...(mode === 'feed' ? { position: 'absolute', inset: 0 } : {}) }}>
+        <iframe
+          ref={iframeRef}
+          srcDoc={srcdoc}
+          sandbox="allow-scripts"
+          style={iframeFeedStyle}
+        />
+        {renderError && <RenderErrorPanel message={renderError} format={format} />}
+      </div>
     )
   }
 
   // Inline rendered formats share a base full-screen container style
-  const base: React.CSSProperties = {
-    position: 'fixed',
-    top: 0, left: 0, right: 0, bottom: 0,
-    overflowY: 'auto',
-    zIndex: 10,
-    background: 'white',
-  }
+  const base: React.CSSProperties = mode === 'feed'
+    ? { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, overflowY: 'auto', background: 'white' }
+    : { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, overflowY: 'auto', zIndex: 10, background: 'white' }
 
   // Image format — full-screen centered
   if (format === 'image') {
@@ -301,7 +425,20 @@ export function ContentRenderer({ content, format, mode }: Props) {
         justifyContent: 'center',
         background: '#f5f5f5',
       }}>
-        <img src={content} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+        <img
+          src={content}
+          alt=""
+          style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+          onError={() => {
+            const msg = 'Failed to load image'
+            setRenderError(msg)
+            if (slug && !reportedRef.current) {
+              reportedRef.current = true
+              reportRenderError(slug, msg)
+            }
+          }}
+        />
+        {renderError && <RenderErrorPanel message={renderError} format={format} />}
       </div>
     )
   }

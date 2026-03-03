@@ -272,11 +272,51 @@ const IFRAME_FORMATS = ['html', 'jsx', 'svg', 'lottie', 'p5', 'reveal', 'glsl'] 
 type IframeFormat = typeof IFRAME_FORMATS[number]
 
 function InlinePreview({ content, format }: { content: string; format: string }) {
+  const [renderError, setRenderError] = React.useState<string | null>(null)
+  const iframeRef = React.useRef<HTMLIFrameElement>(null)
+
+  // Reset error when content changes
+  React.useEffect(() => {
+    setRenderError(null)
+  }, [content])
+
+  // Listen for error messages from iframe
+  React.useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      if (e.data?.type === 'sho-render-error' && e.source === iframeRef.current?.contentWindow) {
+        setRenderError(String(e.data.message || 'Unknown error'))
+      }
+    }
+    window.addEventListener('message', handler)
+    return () => window.removeEventListener('message', handler)
+  }, [])
+
+  const errorPanel = renderError && (
+    <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-10 rounded-xl">
+      <div className="max-w-[400px] w-[90%] bg-[#1a1a2e] rounded-2xl p-6 text-center border border-white/[0.08] shadow-xl">
+        <div className="text-3xl mb-3">&#9888;</div>
+        <div className="text-sm font-semibold text-red-400 mb-2">Render Error</div>
+        <pre className="bg-[#0d1117] text-[#e6edf3] p-3 rounded-lg text-xs font-mono leading-relaxed whitespace-pre-wrap break-words text-left max-h-[150px] overflow-auto mb-3">
+          {renderError}
+        </pre>
+        <span className="inline-block text-[10px] font-medium text-white/40 bg-white/[0.06] rounded px-2 py-0.5 uppercase tracking-wider">
+          {format}
+        </span>
+      </div>
+    </div>
+  )
+
   // Image format
   if (format === 'image') {
     return (
-      <div className="rounded-xl border border-slate-200 overflow-hidden bg-slate-50 min-h-[400px] max-h-[500px] flex items-center justify-center p-4">
-        <img src={content} alt="" style={{ maxWidth: '100%', maxHeight: '460px', objectFit: 'contain' }} />
+      <div className="relative rounded-xl border border-slate-200 overflow-hidden bg-slate-50 min-h-[400px] max-h-[500px] flex items-center justify-center p-4">
+        <img
+          src={content}
+          alt=""
+          style={{ maxWidth: '100%', maxHeight: '460px', objectFit: 'contain' }}
+          onError={() => setRenderError('Failed to load image')}
+        />
+        {errorPanel}
       </div>
     )
   }
@@ -294,12 +334,14 @@ function InlinePreview({ content, format }: { content: string; format: string })
       default:       srcdoc = buildHtmlSrcdoc(content)
     }
     return (
-      <div className="rounded-xl border border-slate-200 overflow-hidden bg-white min-h-[400px]">
+      <div className="relative rounded-xl border border-slate-200 overflow-hidden bg-white min-h-[400px]">
         <iframe
+          ref={iframeRef}
           srcDoc={srcdoc}
           sandbox="allow-scripts"
           className="w-full h-[500px] border-none"
         />
+        {errorPanel}
       </div>
     )
   }
@@ -665,12 +707,6 @@ export default function HomeClient({ posts }: { posts: Post[] }) {
             />
             <span className="text-lg font-semibold tracking-tight text-slate-900">Sho</span>
           </a>
-          <Link
-            href="/explore"
-            className="text-sm text-slate-400 hover:text-slate-600 transition-colors"
-          >
-            Explore
-          </Link>
         </FadeIn>
 
         {/* Main Grid: 3fr 2fr */}
@@ -679,9 +715,18 @@ export default function HomeClient({ posts }: { posts: Post[] }) {
           {/* Left: Publish Area */}
           <div>
             <FadeIn delay={0.05}>
-              <h1 className="text-4xl md:text-5xl font-bold text-slate-900 tracking-tighter leading-[1.1]">
-                Publish anything.
-              </h1>
+              <div className="flex items-start justify-between gap-4">
+                <h1 className="text-4xl md:text-5xl font-bold text-slate-900 tracking-tighter leading-[1.1]">
+                  Publish anything.
+                </h1>
+                <Link
+                  href="/feeds"
+                  className="group flex items-center gap-1.5 shrink-0 mt-2 px-4 py-2 rounded-full text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 transition-all shadow-sm hover:shadow-md"
+                >
+                  Discover
+                  <ArrowRightIcon size={15} weight="bold" className="transition-transform group-hover:translate-x-0.5" />
+                </Link>
+              </div>
               <p className="text-lg text-slate-400 mt-3 mb-10">
                 One API call. Any format.
               </p>

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"math/big"
 	"os"
 	"regexp"
 	"strings"
@@ -388,12 +389,14 @@ func (s *PostService) ListRecommended(ctx context.Context, limit, offset int, fo
 	return applyFormatDiversity(posts, limit), nil
 }
 
-// applyFormatDiversity re-ranks posts to ensure adjacent items have different formats.
-// Algorithm: greedy scan — for each slot, prefer the highest-scored post whose format
-// has not appeared in the previous two positions.  If no diverse post exists, fall back
-// to the best available.
+// applyFormatDiversity re-ranks posts to ensure adjacent items have different formats,
+// with randomness to avoid identical results on every request.
 //
-// Input must already be sorted descending by recommendation score (as returned by the DB).
+// Algorithm: greedy scan — for each slot, collect candidates whose format hasn't appeared
+// in the previous two positions, then randomly pick one from the top candidates (window
+// size 3).  If no diverse candidate exists, fall back to a random pick from all remaining.
+//
+// Input is sorted by recommendation score (already jittered by SQL random()).
 func applyFormatDiversity(posts []*model.Post, limit int) []*model.Post {
 	if len(posts) == 0 {
 		return posts
@@ -412,28 +415,37 @@ func applyFormatDiversity(posts []*model.Post, limit int) []*model.Post {
 			recentFmts[result[n-2].Format] = true
 		}
 
-		diverse, fallback := -1, -1
+		// Gather diverse candidates and fallback candidates.
+		var diverseCands, fallbackCands []int
+		const pickWindow = 3
 		for i, p := range posts {
 			if used[i] {
 				continue
 			}
-			if fallback == -1 {
-				fallback = i // best un-used post (score order preserved)
+			if !recentFmts[p.Format] && len(diverseCands) < pickWindow {
+				diverseCands = append(diverseCands, i)
 			}
-			if !recentFmts[p.Format] && diverse == -1 {
-				diverse = i // first un-used post with a fresh format
+			if len(fallbackCands) < pickWindow {
+				fallbackCands = append(fallbackCands, i)
 			}
-			if diverse != -1 {
+			if len(diverseCands) >= pickWindow && len(fallbackCands) >= pickWindow {
 				break
 			}
 		}
 
-		chosen := diverse
-		if chosen == -1 {
-			chosen = fallback
+		pool := diverseCands
+		if len(pool) == 0 {
+			pool = fallbackCands
 		}
-		if chosen == -1 {
+		if len(pool) == 0 {
 			break // exhausted
+		}
+
+		chosen := pool[0]
+		if len(pool) > 1 {
+			if n, err := rand.Int(rand.Reader, big.NewInt(int64(len(pool)))); err == nil {
+				chosen = pool[n.Int64()]
+			}
 		}
 
 		used[chosen] = true
@@ -521,6 +533,10 @@ func (s *PostService) GenerateRandomAuthor(ctx context.Context) (string, error) 
 	}
 	// All attempts collided — return the last generated name anyway
 	return last, nil
+}
+
+func (s *PostService) ReportRenderError(ctx context.Context, slug, fpHash string) error {
+	return s.store.TryReportRenderError(ctx, slug, fpHash)
 }
 
 func (s *PostService) LikePost(ctx context.Context, slug, fpHash string) (int, bool, error) {

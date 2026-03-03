@@ -490,7 +490,7 @@ export function PostViewer({ post, initialLikes, initialCommentsCount }: {
             </div>
           </>
         ) : (
-          <ContentRenderer content={displayContent} format={post.format} mode={mode} />
+          <ContentRenderer content={displayContent} format={post.format} mode={mode} slug={post.slug} />
         )}
       </div>
 

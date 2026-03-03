@@ -94,6 +94,7 @@ func main() {
 		r.Get("/posts", postHandler.List)
 		r.Post("/posts/{slug}/view", postHandler.RecordView)
 		r.Post("/posts/{slug}/like", postHandler.Like)
+		r.Post("/posts/{slug}/render-error", postHandler.ReportRenderError)
 		r.Post("/posts/{slug}/share", postHandler.Share)
 		r.Get("/posts/{slug}/versions", postHandler.ListVersions)
 		r.Get("/posts/{slug}/comments", postHandler.ListComments)

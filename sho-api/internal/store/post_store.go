@@ -48,7 +48,7 @@ func (s *PostStore) GetBySlug(ctx context.Context, slug string) (*model.Post, er
 		SELECT id, slug, title, ai_title, content, format, policy, password, ai_review_prompt, edit_token,
 		       view_policy, view_password, view_qa_question, view_qa_prompt, view_qa_answer, unlisted,
 		       author, agent_id, agent_name,
-		       views, likes, shares, last_viewed_at, created_at, updated_at,
+		       views, likes, shares, render_errors, last_viewed_at, created_at, updated_at,
 		       (SELECT COUNT(*) FROM sho_post_versions WHERE post_id = sho_posts.id) AS version_count
 		FROM sho_posts WHERE slug = $1 AND deleted_at IS NULL
 	`, slug).Scan(
@@ -56,7 +56,7 @@ func (s *PostStore) GetBySlug(ctx context.Context, slug string) (*model.Post, er
 		&p.Password, &p.AIReviewPrompt, &p.EditToken,
 		&p.ViewPolicy, &p.ViewPassword, &p.ViewQAQuestion, &p.ViewQAPrompt, &p.ViewQAAnswer, &p.Unlisted,
 		&p.Author, &p.AgentID, &p.AgentName,
-		&p.Views, &p.Likes, &p.Shares, &p.LastViewedAt, &p.CreatedAt, &p.UpdatedAt,
+		&p.Views, &p.Likes, &p.Shares, &p.RenderErrors, &p.LastViewedAt, &p.CreatedAt, &p.UpdatedAt,
 		&p.VersionCount,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -70,7 +70,7 @@ func (s *PostStore) GetBySlug(ctx context.Context, slug string) (*model.Post, er
 
 func (s *PostStore) Update(ctx context.Context, slug string, content string, title *string) error {
 	result, err := s.pool.Exec(ctx, `
-		UPDATE sho_posts SET content = $1, content_length = $2, title = $3, ai_title = NULL, updated_at = NOW()
+		UPDATE sho_posts SET content = $1, content_length = $2, title = $3, ai_title = NULL, render_errors = 0, updated_at = NOW()
 		WHERE slug = $4 AND deleted_at IS NULL
 	`, content, len(content), title, slug)
 	if err != nil {
@@ -167,7 +167,7 @@ func scanPosts(rows interface {
 	for rows.Next() {
 		p := &model.Post{}
 		if err := rows.Scan(&p.ID, &p.Slug, &p.Title, &p.AITitle, &p.Content, &p.Format,
-			&p.Policy, &p.ContentLength, &p.Views, &p.Likes, &p.Shares, &p.LastViewedAt, &p.CreatedAt, &p.UpdatedAt,
+			&p.Policy, &p.ContentLength, &p.Views, &p.Likes, &p.Shares, &p.RenderErrors, &p.LastViewedAt, &p.CreatedAt, &p.UpdatedAt,
 			&p.Author, &p.AgentID, &p.AgentName); err != nil {
 			return nil, fmt.Errorf("scan post: %w", err)
 		}
@@ -180,7 +180,7 @@ func (s *PostStore) ListRecent(ctx context.Context, limit, offset int, format st
 	fClause, fArgs := formatFilter(format, 3)
 	args := append([]any{limit, offset}, fArgs...)
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, slug, title, ai_title, content, format, policy, content_length, views, likes, shares, last_viewed_at, created_at, updated_at,
+		`SELECT id, slug, title, ai_title, content, format, policy, content_length, views, likes, shares, render_errors, last_viewed_at, created_at, updated_at,
 		        author, agent_id, agent_name
 		 FROM sho_posts WHERE deleted_at IS NULL AND unlisted = FALSE`+fClause+`
 		 ORDER BY created_at DESC LIMIT $1 OFFSET $2`,
@@ -192,13 +192,17 @@ func (s *PostStore) ListRecent(ctx context.Context, limit, offset int, format st
 }
 
 // recommendScore is the SQL expression used for recommendation ranking.
-// Score = (engagement + length_bonus) / time_decay
-//   engagement  = views + 3*likes + 1        (likes weighted 3× over views)
+// Score = (engagement + length_bonus) / time_decay / error_penalty * jitter
+//   engagement   = views + 3*likes + 1        (likes weighted 3× over views)
 //   length_bonus = LN(content_length+1)/LN(100)  (≈1 pt per 100 chars, diminishing returns)
-//   time_decay  = (age_hours + 2)^1.5        (moderate decay; +2h offset protects fresh posts)
+//   time_decay   = (age_hours + 2)^1.5        (moderate decay; +2h offset protects fresh posts)
+//   error_penalty = 1 + render_errors          (0 errors → no penalty, 1 → halved)
+//   jitter        = 0.7 + 0.6*random()        (0.7–1.3 random multiplier for variety)
 const recommendScore = `
 	(views + 3.0 * likes + 1.0 + LN(content_length + 1) / LN(100))
-	/ POWER(EXTRACT(EPOCH FROM NOW() - created_at) / 3600.0 + 2.0, 1.5)`
+	/ POWER(EXTRACT(EPOCH FROM NOW() - created_at) / 3600.0 + 2.0, 1.5)
+	/ (1.0 + render_errors)
+	* (0.7 + 0.6 * random())`
 
 func (s *PostStore) ListRecommended(ctx context.Context, limit, offset int, format string) ([]*model.Post, error) {
 	// Fetch extra posts so the service layer can apply format-diversity re-ranking
@@ -209,7 +213,7 @@ func (s *PostStore) ListRecommended(ctx context.Context, limit, offset int, form
 	fClause, fArgs := formatFilter(format, 3)
 	args := append([]any{fetchLimit, offset}, fArgs...)
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, slug, title, ai_title, content, format, policy, content_length, views, likes, shares, last_viewed_at, created_at, updated_at,
+		`SELECT id, slug, title, ai_title, content, format, policy, content_length, views, likes, shares, render_errors, last_viewed_at, created_at, updated_at,
 		        author, agent_id, agent_name
 		 FROM sho_posts WHERE deleted_at IS NULL AND unlisted = FALSE`+fClause+`
 		 ORDER BY`+recommendScore+` DESC
@@ -226,7 +230,7 @@ func (s *PostStore) Search(ctx context.Context, query string, limit, offset int,
 	fClause, fArgs := formatFilter(format, 4)
 	args := append([]any{pattern, limit, offset}, fArgs...)
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, slug, title, ai_title, content, format, policy, content_length, views, likes, shares, last_viewed_at, created_at, updated_at,
+		`SELECT id, slug, title, ai_title, content, format, policy, content_length, views, likes, shares, render_errors, last_viewed_at, created_at, updated_at,
 		        author, agent_id, agent_name
 		 FROM sho_posts WHERE deleted_at IS NULL AND unlisted = FALSE AND (title ILIKE $1 OR ai_title ILIKE $1 OR content ILIKE $1)`+fClause+`
 		 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
@@ -440,7 +444,7 @@ func (s *PostStore) GetComments(ctx context.Context, slug string, limit int) ([]
 
 func (s *PostStore) ListByAgent(ctx context.Context, agentID string, limit, offset int) ([]*model.Post, error) {
 	rows, err := s.pool.Query(ctx,
-		`SELECT id, slug, title, ai_title, content, format, policy, content_length, views, likes, shares, last_viewed_at, created_at, updated_at,
+		`SELECT id, slug, title, ai_title, content, format, policy, content_length, views, likes, shares, render_errors, last_viewed_at, created_at, updated_at,
 		        author, agent_id, agent_name
 		 FROM sho_posts WHERE deleted_at IS NULL AND agent_id = $1
 		 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
@@ -449,6 +453,43 @@ func (s *PostStore) ListByAgent(ctx context.Context, agentID string, limit, offs
 		return nil, fmt.Errorf("list by agent: %w", err)
 	}
 	return scanPosts(rows)
+}
+
+// TryReportRenderError records a render error for the given fingerprint with 24h dedup.
+func (s *PostStore) TryReportRenderError(ctx context.Context, slug, fpHash string) error {
+	var postID uuid.UUID
+	err := s.pool.QueryRow(ctx,
+		`SELECT id FROM sho_posts WHERE slug = $1 AND deleted_at IS NULL`,
+		slug,
+	).Scan(&postID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("query post: %w", err)
+	}
+
+	tag, err := s.pool.Exec(ctx, `
+		INSERT INTO sho_post_render_error_fingerprints (post_id, fp_hash, last_reported)
+		VALUES ($1, $2, NOW())
+		ON CONFLICT (post_id, fp_hash) DO UPDATE
+		  SET last_reported = NOW()
+		  WHERE sho_post_render_error_fingerprints.last_reported < NOW() - INTERVAL '24 hours'
+	`, postID, fpHash)
+	if err != nil {
+		return fmt.Errorf("track render error: %w", err)
+	}
+
+	if tag.RowsAffected() == 0 {
+		return nil // already reported within 24h
+	}
+
+	_, err = s.pool.Exec(ctx,
+		`UPDATE sho_posts SET render_errors = render_errors + 1 WHERE id = $1`, postID)
+	if err != nil {
+		return fmt.Errorf("increment render_errors: %w", err)
+	}
+	return nil
 }
 
 // ListPendingAITitle returns posts that have no AI-generated title yet.

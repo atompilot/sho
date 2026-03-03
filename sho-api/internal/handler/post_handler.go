@@ -397,6 +397,22 @@ func (h *PostHandler) RecordView(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"views": views, "counted": counted})
 }
 
+func (h *PostHandler) ReportRenderError(w http.ResponseWriter, r *http.Request) {
+	slug := chi.URLParam(r, "slug")
+	fp := likeFingerprint(r)
+	err := h.svc.ReportRenderError(r.Context(), slug, fp)
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "post not found")
+		return
+	}
+	if err != nil {
+		log.Printf("report render error %s: %v", slug, err)
+		writeError(w, http.StatusInternalServerError, "failed to report render error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "reported"})
+}
+
 func (h *PostHandler) Like(w http.ResponseWriter, r *http.Request) {
 	slug := chi.URLParam(r, "slug")
 	newLikes, alreadyLiked, err := h.svc.LikePost(r.Context(), slug, likeFingerprint(r))

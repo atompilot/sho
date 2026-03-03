@@ -76,6 +76,7 @@ type Post struct {
 	Views          int        `json:"views"`
 	Likes          int        `json:"likes"`
 	Shares         int        `json:"shares"`
+	RenderErrors   int        `json:"render_errors"`
 	LastViewedAt   *time.Time `json:"last_viewed_at,omitempty"`
 	CreatedAt      time.Time  `json:"created_at"`
 	UpdatedAt      time.Time  `json:"updated_at"`
