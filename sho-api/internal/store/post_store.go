@@ -192,15 +192,28 @@ func (s *PostStore) ListRecent(ctx context.Context, limit, offset int, format st
 }
 
 // recommendScore is the SQL expression used for recommendation ranking.
-// Score = (engagement + length_bonus) / time_decay / error_penalty * jitter
-//   engagement   = views + 3*likes + 1        (likes weighted 3× over views)
-//   length_bonus = LN(content_length+1)/LN(100)  (≈1 pt per 100 chars, diminishing returns)
-//   time_decay   = (age_hours + 2)^1.5        (moderate decay; +2h offset protects fresh posts)
-//   error_penalty = 1 + render_errors          (0 errors → no penalty, 1 → halved)
-//   jitter        = 0.7 + 0.6*random()        (0.7–1.3 random multiplier for variety)
+// Score = (hot_score + freshness_bonus) / error_penalty * jitter
+//
+//   hot_score      = engagement / time_decay
+//     engagement   = views + 3*likes + 1        (likes weighted 3× over views)
+//     length_bonus = LN(content_length+1)/LN(100)
+//     time_decay   = (age_hours + 2)^1.5        (moderate decay; +2h offset protects fresh posts)
+//
+//   freshness_bonus = max(0, 3 * (1 - age_hours/24))
+//     Additive bonus outside time_decay — linearly decays from 3 → 0 over 24h.
+//     This ensures new content appears in recommendations even without engagement.
+//     Typical magnitudes:  0h → +3.0,  6h → +2.25,  12h → +1.5,  24h → 0
+//     For comparison, a 24h-old post with 100 views + 10 likes scores ~1.0 hot_score,
+//     so a brand-new post is competitive for its first ~12 hours.
+//
+//   error_penalty  = 1 + render_errors
+//   jitter         = 0.7 + 0.6*random()        (0.7–1.3 random multiplier for variety)
 const recommendScore = `
-	(views + 3.0 * likes + 1.0 + LN(content_length + 1) / LN(100))
-	/ POWER(EXTRACT(EPOCH FROM NOW() - created_at) / 3600.0 + 2.0, 1.5)
+	(
+		(views + 3.0 * likes + 1.0 + LN(content_length + 1) / LN(100))
+		/ POWER(EXTRACT(EPOCH FROM NOW() - created_at) / 3600.0 + 2.0, 1.5)
+		+ GREATEST(0, 3.0 * (1.0 - EXTRACT(EPOCH FROM NOW() - created_at) / 86400.0))
+	)
 	/ (1.0 + render_errors)
 	* (0.7 + 0.6 * random())`
 
